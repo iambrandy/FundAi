@@ -1,0 +1,391 @@
+// ============================================================
+// AI Portfolio Management Platform — Core Schema (v1 / MVP)
+// ============================================================
+// Design principles:
+// - Multi-tenant: an Advisor owns many Clients; a Retail user IS their own Client.
+// - Recommendation is a first-class object (AI proposes, human approves) —
+//   this keeps the platform in "advisory" territory, not discretionary trading.
+// - Stock market data (fundamentals, prices, factor scores) is tenant-agnostic
+//   shared reference data — computed once, used by everyone.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// Identity & Access
+// ------------------------------------------------------------
+
+enum UserRole {
+  ADVISOR   // manages multiple clients
+  RETAIL    // self-serve, manages own portfolio only
+  ADMIN     // platform ops
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  passwordHash  String
+  fullName      String
+  role          UserRole
+  phone         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // If ADVISOR: clients they manage
+  clients       Client[]   @relation("AdvisorClients")
+
+  // If RETAIL: their own single client record (self-referencing pattern)
+  ownClient     Client?    @relation("RetailOwnClient")
+
+  auditLogs     AuditLog[]
+
+  @@index([role])
+}
+
+// A Client is the entity that owns portfolios.
+// For an Advisor: many Clients, each a separate person/entity.
+// For a Retail user: exactly one Client record representing themselves.
+model Client {
+  id            String     @id @default(cuid())
+  advisorId     String?
+  advisor       User?      @relation("AdvisorClients", fields: [advisorId], references: [id])
+
+  retailUserId  String?    @unique
+  retailUser    User?      @relation("RetailOwnClient", fields: [retailUserId], references: [id])
+
+  displayName   String
+  email         String?
+  phone         String?
+
+  // KYC / risk profile — required before any recommendation can be approved
+  riskProfile   RiskProfile?
+  kycStatus     KycStatus  @default(PENDING)
+
+  portfolios    Portfolio[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([advisorId])
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+model RiskProfile {
+  id                String   @id @default(cuid())
+  clientId          String   @unique
+  client            Client   @relation(fields: [clientId], references: [id])
+
+  riskTolerance     RiskTolerance
+  investmentHorizonYears Int
+  monthlyInvestable Decimal  @db.Decimal(16, 2)
+  goals             String?  // free text, e.g. "retirement, house down payment"
+
+  updatedAt         DateTime @updatedAt
+}
+
+enum RiskTolerance {
+  CONSERVATIVE
+  MODERATE
+  AGGRESSIVE
+}
+
+// ------------------------------------------------------------
+// Portfolios, Holdings, Transactions
+// ------------------------------------------------------------
+
+model Portfolio {
+  id              String     @id @default(cuid())
+  clientId        String
+  client          Client     @relation(fields: [clientId], references: [id])
+
+  name            String     // e.g. "Retirement Portfolio", "Trading Account"
+  baseCurrency    String     @default("INR")
+
+  // Optional link to an AI strategy this portfolio is tracking/following
+  modelPortfolioId String?
+  modelPortfolio  ModelPortfolio? @relation(fields: [modelPortfolioId], references: [id])
+
+  holdings        Holding[]
+  transactions    Transaction[]
+  recommendations Recommendation[]
+  navHistory      PortfolioNavHistory[]
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([clientId])
+}
+
+model Holding {
+  id            String    @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id])
+
+  stockId       String
+  stock         Stock     @relation(fields: [stockId], references: [id])
+
+  quantity      Decimal   @db.Decimal(18, 4)
+  avgBuyPrice   Decimal   @db.Decimal(16, 4)
+
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([portfolioId, stockId])
+  @@index([portfolioId])
+}
+
+enum TransactionType {
+  BUY
+  SELL
+  DIVIDEND
+  SPLIT
+  BONUS
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio       @relation(fields: [portfolioId], references: [id])
+
+  stockId       String
+  stock         Stock           @relation(fields: [stockId], references: [id])
+
+  type          TransactionType
+  quantity      Decimal         @db.Decimal(18, 4)
+  price         Decimal         @db.Decimal(16, 4)
+  fees          Decimal         @db.Decimal(12, 2) @default(0)
+  executedAt    DateTime
+
+  // Was this transaction the result of an approved AI recommendation?
+  recommendationId String?
+  recommendation    Recommendation? @relation(fields: [recommendationId], references: [id])
+
+  createdAt     DateTime        @default(now())
+
+  @@index([portfolioId])
+  @@index([stockId])
+}
+
+// Daily NAV snapshot per portfolio — needed for performance charts, XIRR, etc.
+model PortfolioNavHistory {
+  id            String    @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id])
+
+  date          DateTime  @db.Date
+  totalValue    Decimal   @db.Decimal(18, 2)
+  cashBalance   Decimal   @db.Decimal(18, 2) @default(0)
+
+  @@unique([portfolioId, date])
+  @@index([portfolioId, date])
+}
+
+// ------------------------------------------------------------
+// Stock Universe & Market Data (shared reference data)
+// ------------------------------------------------------------
+
+model Stock {
+  id            String    @id @default(cuid())
+  symbol        String    @unique   // e.g. "RELIANCE", "TCS"
+  exchange      String    @default("NSE")
+  name          String
+  sector        String?
+  industry      String?
+  isActive      Boolean   @default(true)
+
+  fundamentals  StockFundamental[]
+  priceHistory  StockPrice[]
+  factorScores  FactorScore[]
+  holdings      Holding[]
+  transactions  Transaction[]
+  modelConstituents ModelPortfolioConstituent[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([symbol])
+  @@index([sector])
+}
+
+// Quarterly/annual fundamental data snapshots
+model StockFundamental {
+  id              String   @id @default(cuid())
+  stockId         String
+  stock           Stock    @relation(fields: [stockId], references: [id])
+
+  reportDate      DateTime @db.Date
+  peRatio         Decimal? @db.Decimal(10, 2)
+  pbRatio         Decimal? @db.Decimal(10, 2)
+  roe             Decimal? @db.Decimal(6, 2)   // %
+  debtToEquity    Decimal? @db.Decimal(8, 2)
+  epsGrowthYoy    Decimal? @db.Decimal(6, 2)   // %
+  revenueGrowthYoy Decimal? @db.Decimal(6, 2)  // %
+  dividendYield   Decimal? @db.Decimal(6, 2)   // %
+  marketCap       Decimal? @db.Decimal(20, 2)
+
+  @@unique([stockId, reportDate])
+  @@index([stockId])
+}
+
+// Daily OHLCV — the workhorse table, will be large. Consider partitioning later.
+model StockPrice {
+  id        String   @id @default(cuid())
+  stockId   String
+  stock     Stock    @relation(fields: [stockId], references: [id])
+
+  date      DateTime @db.Date
+  open      Decimal  @db.Decimal(14, 4)
+  high      Decimal  @db.Decimal(14, 4)
+  low       Decimal  @db.Decimal(14, 4)
+  close     Decimal  @db.Decimal(14, 4)
+  volume    BigInt
+
+  @@unique([stockId, date])
+  @@index([stockId, date])
+}
+
+// Computed by the Python factor-scoring service, versioned by date
+// so we can track how a stock's score evolves and re-explain past recommendations.
+model FactorScore {
+  id            String   @id @default(cuid())
+  stockId       String
+  stock         Stock    @relation(fields: [stockId], references: [id])
+
+  asOfDate      DateTime @db.Date
+  valueScore    Decimal  @db.Decimal(5, 2)  // normalized 0-100
+  momentumScore Decimal  @db.Decimal(5, 2)
+  qualityScore  Decimal  @db.Decimal(5, 2)
+  growthScore   Decimal  @db.Decimal(5, 2)
+  compositeScore Decimal @db.Decimal(5, 2)
+
+  @@unique([stockId, asOfDate])
+  @@index([stockId, asOfDate])
+}
+
+// ------------------------------------------------------------
+// AI Model Portfolios & Recommendations
+// ------------------------------------------------------------
+
+enum StrategyStatus {
+  ACTIVE
+  DEPRECATED
+  BACKTESTING
+}
+
+model ModelPortfolio {
+  id            String    @id @default(cuid())
+  name          String    // e.g. "High Growth", "Value + Quality"
+  description   String?
+  status        StrategyStatus @default(BACKTESTING)
+
+  constituents  ModelPortfolioConstituent[]
+  backtests     BacktestResult[]
+  linkedPortfolios Portfolio[]
+  recommendations Recommendation[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model ModelPortfolioConstituent {
+  id                String         @id @default(cuid())
+  modelPortfolioId  String
+  modelPortfolio    ModelPortfolio @relation(fields: [modelPortfolioId], references: [id])
+
+  stockId           String
+  stock             Stock          @relation(fields: [stockId], references: [id])
+
+  targetWeightPct   Decimal        @db.Decimal(5, 2) // e.g. 8.50 = 8.5%
+  asOfDate          DateTime       @db.Date
+
+  @@unique([modelPortfolioId, stockId, asOfDate])
+}
+
+model BacktestResult {
+  id                String         @id @default(cuid())
+  modelPortfolioId  String
+  modelPortfolio    ModelPortfolio @relation(fields: [modelPortfolioId], references: [id])
+
+  periodStart       DateTime       @db.Date
+  periodEnd         DateTime       @db.Date
+  cagr              Decimal?       @db.Decimal(6, 2)
+  xirr              Decimal?       @db.Decimal(6, 2)
+  maxDrawdown       Decimal?       @db.Decimal(6, 2)
+  sharpeRatio       Decimal?       @db.Decimal(6, 2)
+  volatility        Decimal?       @db.Decimal(6, 2)
+
+  generatedAt       DateTime       @default(now())
+}
+
+enum RecommendationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum RecommendationAction {
+  BUY
+  SELL
+  REBALANCE
+}
+
+// The core "human-in-the-loop" object: AI proposes a change,
+// advisor/retail user must explicitly approve before any Transaction is created.
+model Recommendation {
+  id                String    @id @default(cuid())
+  portfolioId       String
+  portfolio         Portfolio @relation(fields: [portfolioId], references: [id])
+
+  modelPortfolioId  String?
+  modelPortfolio    ModelPortfolio? @relation(fields: [modelPortfolioId], references: [id])
+
+  action            RecommendationAction
+  stockId           String?
+  suggestedQuantity Decimal?  @db.Decimal(18, 4)
+  suggestedWeightPct Decimal? @db.Decimal(5, 2)
+
+  rationaleText     String    // LLM-generated plain-English explanation
+  factorSnapshot    Json?     // frozen factor scores at time of recommendation
+
+  status            RecommendationStatus @default(PENDING)
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+
+  transactions      Transaction[]
+
+  generatedAt       DateTime  @default(now())
+  expiresAt         DateTime?
+
+  @@index([portfolioId, status])
+}
+
+// ------------------------------------------------------------
+// Audit
+// ------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  action      String   // e.g. "RECOMMENDATION_APPROVED", "PORTFOLIO_CREATED"
+  entityType  String
+  entityId    String
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+}

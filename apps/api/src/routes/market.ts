@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { getSystemPrisma } from "../lib/prisma";
-import { AppError } from "../middleware/errorHandler";
 import { AuthedRequest } from "../middleware/requireAuth";
+import * as fs from "fs";
+import * as path from "path";
 
 const router = Router();
 
@@ -13,7 +14,7 @@ const INTERNAL_SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
  * 
  * Returns current market regime based on recent index price action with REAL Nifty 50 data.
  */
-router.get("/regime", async (req: AuthedRequest, res, next) => {
+router.get("/regime", async (_req: AuthedRequest, res, next) => {
   try {
     const indexPrices = await fetchRealNiftyPrices();
 
@@ -27,14 +28,15 @@ router.get("/regime", async (req: AuthedRequest, res, next) => {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new AppError(500, `Regime detection failed: ${text}`);
+      throw new Error(`Quant engine returned ${response.status}`);
     }
 
     const result = await response.json();
     res.json(result);
+    return;
   } catch (err) {
     next(err);
+    return;
   }
 });
 
@@ -43,7 +45,7 @@ router.get("/regime", async (req: AuthedRequest, res, next) => {
  * 
  * Returns ACTUAL factor performance calculated from historical database records.
  */
-router.get("/factor-performance", async (req: AuthedRequest, res, next) => {
+router.get("/factor-performance", async (_req: AuthedRequest, res, next) => {
   try {
     const prisma = getSystemPrisma();
 
@@ -71,7 +73,7 @@ router.get("/factor-performance", async (req: AuthedRequest, res, next) => {
 
     if (historicalScores.length === 0) {
       // No historical data yet
-      return res.json({
+      res.json({
         period: "3M",
         data_source: "insufficient_history",
         factors: {
@@ -83,6 +85,7 @@ router.get("/factor-performance", async (req: AuthedRequest, res, next) => {
         },
         note: "Insufficient historical data. Run scoring pipeline for 3+ months.",
       });
+      return;
     }
 
     // Calculate actual factor performance
@@ -94,13 +97,35 @@ router.get("/factor-performance", async (req: AuthedRequest, res, next) => {
       factors: factorPerformance,
       interpretation: generateFactorInterpretation(factorPerformance),
     });
+    return;
   } catch (err) {
     next(err);
+    return;
   }
 });
 
+const NIFTY_CACHE_FILE = path.join(__dirname, "../../../../cache/nifty_cache.json");
+
 // Fetch REAL Nifty 50 prices from Yahoo Finance
 async function fetchRealNiftyPrices(): Promise<{ dates: string[]; closes: number[] }> {
+  // 1. Try to read from shared file cache first
+  try {
+    if (fs.existsSync(NIFTY_CACHE_FILE)) {
+      const stats = fs.statSync(NIFTY_CACHE_FILE);
+      const ageMs = Date.now() - stats.mtimeMs;
+      if (ageMs < 4 * 60 * 60 * 1000) { // 4 hours
+        const cacheData = JSON.parse(fs.readFileSync(NIFTY_CACHE_FILE, "utf-8"));
+        if (cacheData && cacheData.dates && cacheData.dates.length >= 200) {
+          console.log(`[market/regime] ✓ Loaded Nifty 50 data from file cache (${(ageMs / 60000).toFixed(0)} min old)`);
+          return cacheData;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[market/regime] Failed reading Nifty cache:", err);
+  }
+
+  // 2. Fetch from Yahoo Finance if cache is missing or stale
   try {
     const fetch = (await import("node-fetch")).default;
     
@@ -133,12 +158,53 @@ async function fetchRealNiftyPrices(): Promise<{ dates: string[]; closes: number
       closes.push(parseFloat(close));
     }
     
-    console.log(`[market/regime] ✓ Fetched ${dates.length} days of real Nifty 50 data`);
+    if (dates.length < 200) throw new Error(`Insufficient data returned: ${dates.length} days`);
+
+    console.log(`[market/regime] ✓ Fetched ${dates.length} days of real Nifty 50 data from Yahoo Finance`);
+    
+    // Write to cache file
+    try {
+      const cacheDir = path.dirname(NIFTY_CACHE_FILE);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      fs.writeFileSync(NIFTY_CACHE_FILE, JSON.stringify({ dates, closes }));
+    } catch (cacheWriteErr) {
+      console.error("[market/regime] Failed writing Nifty cache:", cacheWriteErr);
+    }
+
     return { dates, closes };
   } catch (error) {
     console.error("[market/regime] Failed to fetch real Nifty data:", error);
-    // Fallback to synthetic for robustness
-    return generateSyntheticIndexPrices();
+    
+    // 3. Fallback to stale cache if it exists, before using synthetic
+    try {
+      if (fs.existsSync(NIFTY_CACHE_FILE)) {
+        const cacheData = JSON.parse(fs.readFileSync(NIFTY_CACHE_FILE, "utf-8"));
+        if (cacheData && cacheData.dates && cacheData.dates.length >= 200) {
+          console.warn("[market/regime] ⚠ Using STALE Nifty cache as fallback");
+          return cacheData;
+        }
+      }
+    } catch (fallbackErr) {
+      console.error("[market/regime] Failed loading stale cache fallback:", fallbackErr);
+    }
+
+    console.log("[market/regime] Falling back to synthetic Nifty data");
+    const synthetic = generateSyntheticIndexPrices();
+    
+    // Cache the fallback synthetic prices so we don't block subsequent requests
+    try {
+      const cacheDir = path.dirname(NIFTY_CACHE_FILE);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      fs.writeFileSync(NIFTY_CACHE_FILE, JSON.stringify(synthetic));
+    } catch (cacheWriteErr) {
+      console.error("[market/regime] Failed writing Nifty fallback cache:", cacheWriteErr);
+    }
+
+    return synthetic;
   }
 }
 

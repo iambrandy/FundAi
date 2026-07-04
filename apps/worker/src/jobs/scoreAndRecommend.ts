@@ -18,6 +18,8 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import * as fs from "fs";
+import * as path from "path";
 
 const prisma = new PrismaClient();
 
@@ -280,6 +282,8 @@ export async function runScoringAndRecommendations(): Promise<{
  * 3. NSE API (official but rate-limited)
  * 4. Fallback to synthetic (development only)
  */
+const NIFTY_CACHE_FILE = path.join(__dirname, "../../../../cache/nifty_cache.json");
+
 async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: number[] }> {
   const USE_REAL_DATA = process.env.USE_REAL_NIFTY_DATA !== "false"; // Default: true
   
@@ -288,8 +292,25 @@ async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: numbe
     return generateSyntheticIndexPrices();
   }
 
+  // 1. Try to read from shared file cache first
   try {
-    // Try Yahoo Finance first (most reliable for historical data)
+    if (fs.existsSync(NIFTY_CACHE_FILE)) {
+      const stats = fs.statSync(NIFTY_CACHE_FILE);
+      const ageMs = Date.now() - stats.mtimeMs;
+      if (ageMs < 4 * 60 * 60 * 1000) { // 4 hours
+        const cacheData = JSON.parse(fs.readFileSync(NIFTY_CACHE_FILE, "utf-8"));
+        if (cacheData && cacheData.dates && cacheData.dates.length >= 200) {
+          console.log(`[scoring] ✓ Loaded Nifty 50 data from file cache (${(ageMs / 60000).toFixed(0)} min old)`);
+          return cacheData;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[scoring] Failed reading Nifty cache:", err);
+  }
+
+  // 2. Fetch from Yahoo Finance if cache is missing or stale
+  try {
     console.log("[scoring] Fetching real Nifty 50 data from Yahoo Finance...");
     const yfinance = await import("node-fetch").then((m) => m.default);
     
@@ -330,13 +351,52 @@ async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: numbe
       throw new Error(`Insufficient data: only ${dates.length} days`);
     }
     
-    console.log(`[scoring] ✓ Fetched ${dates.length} days of real Nifty 50 data`);
+    console.log(`[scoring] ✓ Fetched ${dates.length} days of real Nifty 50 data from Yahoo Finance`);
+    
+    // Write to cache file
+    try {
+      const cacheDir = path.dirname(NIFTY_CACHE_FILE);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      fs.writeFileSync(NIFTY_CACHE_FILE, JSON.stringify({ dates, closes }));
+    } catch (cacheWriteErr) {
+      console.error("[scoring] Failed writing Nifty cache:", cacheWriteErr);
+    }
+
     return { dates, closes };
     
   } catch (error) {
     console.error("[scoring] Failed to fetch real Nifty data:", error);
+    
+    // 3. Fallback to stale cache if it exists, before using synthetic
+    try {
+      if (fs.existsSync(NIFTY_CACHE_FILE)) {
+        const cacheData = JSON.parse(fs.readFileSync(NIFTY_CACHE_FILE, "utf-8"));
+        if (cacheData && cacheData.dates && cacheData.dates.length >= 200) {
+          console.warn("[scoring] ⚠ Using STALE Nifty cache as fallback");
+          return cacheData;
+        }
+      }
+    } catch (fallbackErr) {
+      console.error("[scoring] Failed loading stale cache fallback:", fallbackErr);
+    }
+
     console.log("[scoring] Falling back to synthetic data");
-    return generateSyntheticIndexPrices();
+    const synthetic = generateSyntheticIndexPrices();
+    
+    // Cache the fallback synthetic prices so we don't block subsequent requests
+    try {
+      const cacheDir = path.dirname(NIFTY_CACHE_FILE);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      fs.writeFileSync(NIFTY_CACHE_FILE, JSON.stringify(synthetic));
+    } catch (cacheWriteErr) {
+      console.error("[scoring] Failed writing Nifty fallback cache:", cacheWriteErr);
+    }
+
+    return synthetic;
   }
 }
 

@@ -101,7 +101,7 @@ router.post("/:recommendationId/decide", async (req: AuthedRequest, res, next) =
           action: decision === "APPROVED" ? "RECOMMENDATION_APPROVED" : "RECOMMENDATION_REJECTED",
           entityType: "Recommendation",
           entityId: rec.id,
-          metadata: { portfolioId: rec.portfolioId, action: rec.action },
+          metadata: JSON.stringify({ portfolioId: rec.portfolioId, action: rec.action }),
         },
       });
 

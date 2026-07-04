@@ -15,6 +15,13 @@ Expected output:
 
 import sys
 import os
+
+# Configure stdout and stderr to handle UTF-8 print correctly on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 sys.path.insert(0, os.path.abspath('.'))
 
 import pandas as pd
@@ -78,27 +85,29 @@ def generate_synthetic_stock_data(n_stocks: int = 30, n_days: int = 300):
 
 def generate_synthetic_index(n_days: int = 300, regime_type: str = "BULL"):
     """Generate synthetic index with specific regime characteristics"""
-    np.random.seed(123)
-    
     dates = pd.date_range(end=pd.Timestamp.today(), periods=n_days, freq='B')
     
+    prices = [18000.0]
     if regime_type == "BULL":
-        drift = 0.0005  # Strong upward drift
-        vol = 0.012
+        for i in range(1, n_days):
+            # Alternating returns to introduce non-zero variance
+            ret = 0.0010 if i % 2 == 0 else 0.0014
+            prices.append(prices[-1] * (1 + ret))
     elif regime_type == "BEAR":
-        drift = -0.0003  # Downward drift
-        vol = 0.020
+        for i in range(1, n_days):
+            ret = -0.0008 if i % 2 == 0 else -0.0012
+            prices.append(prices[-1] * (1 + ret))
     elif regime_type == "HIGH_VOLATILITY":
-        drift = 0.0001
-        vol = 0.030  # High volatility
+        for i in range(1, n_days):
+            if i < n_days - 20:
+                ret = 0.0001
+            else:
+                ret = 0.05 if i % 2 == 0 else -0.05
+            prices.append(prices[-1] * (1 + ret))
     else:  # SIDEWAYS
-        drift = 0.0001
-        vol = 0.015
-    
-    prices = [18000]  # Nifty 50 starting level
-    for _ in range(n_days - 1):
-        ret = drift + vol * np.random.randn()
-        prices.append(prices[-1] * (1 + ret))
+        for i in range(1, n_days):
+            ret = 0.0001 if i % 2 == 0 else -0.0001
+            prices.append(prices[-1] * (1 + ret))
     
     index_df = pd.DataFrame({
         'date': dates,
@@ -135,7 +144,7 @@ def test_regime_detection():
         print(f"  Growth: {weights.growth:.1%}")
         print(f"  Low Volatility: {weights.low_volatility:.1%}")
     
-    print("\n✓ Regime detection test passed\n")
+    print("\n[OK] Regime detection test passed\n")
 
 
 def test_low_volatility_factor():
@@ -146,6 +155,7 @@ def test_low_volatility_factor():
     
     _, price_history_df = generate_synthetic_stock_data(n_stocks=10, n_days=252)
     index_df = generate_synthetic_index(n_days=252, regime_type="BULL")
+    price_history_df.index = index_df['date']
     index_series = index_df.set_index('date')['close']
     
     # Compute low vol metrics
@@ -165,7 +175,7 @@ def test_low_volatility_factor():
     print("\nTop 3 Lowest Volatility Stocks:")
     print(metrics.nlargest(3, 'low_vol_score')[['stock_id', 'realized_vol', 'beta', 'max_drawdown', 'low_vol_score']])
     
-    print("\n✓ Low volatility factor test passed\n")
+    print("\n[OK] Low volatility factor test passed\n")
 
 
 def test_full_scoring_pipeline():
@@ -177,6 +187,7 @@ def test_full_scoring_pipeline():
     # Generate data
     universe_df, price_history_df = generate_synthetic_stock_data(n_stocks=30, n_days=300)
     index_df = generate_synthetic_index(n_days=300, regime_type="BULL")
+    price_history_df.index = index_df['date']
     index_series = index_df.set_index('date')['close']
     
     # Score without regime adaptation (baseline)
@@ -225,7 +236,7 @@ def test_full_scoring_pipeline():
     print(f"Correlation (baseline vs adaptive): {scored_baseline['composite_score'].corr(scored_adaptive['composite_score']):.3f}")
     print(f"Rank Correlation: {scored_baseline['composite_score'].corr(scored_adaptive['composite_score'], method='spearman'):.3f}")
     
-    print("\n✓ Full scoring pipeline test passed\n")
+    print("\n[OK] Full scoring pipeline test passed\n")
 
 
 def test_regime_transitions():
@@ -239,6 +250,7 @@ def test_regime_transitions():
     results = []
     for regime_type in ["BULL", "BEAR", "HIGH_VOLATILITY", "SIDEWAYS"]:
         index_df = generate_synthetic_index(n_days=300, regime_type=regime_type)
+        price_history_df.index = index_df['date']
         index_series = index_df.set_index('date')['close']
         
         scored = compute_factor_scores(
@@ -266,7 +278,7 @@ def test_regime_transitions():
     print("  • BEAR regime: Higher low vol scores influence composite")
     print("  • Score distributions shift based on regime-specific weights")
     
-    print("\n✓ Regime transition test passed\n")
+    print("\n[OK] Regime transition test passed\n")
 
 
 def main():
@@ -282,7 +294,7 @@ def main():
         test_regime_transitions()
         
         print("=" * 60)
-        print("ALL TESTS PASSED ✓")
+        print("ALL TESTS PASSED [OK]")
         print("=" * 60)
         print("\nNext Steps:")
         print("  1. Start quant engine: cd services/quant-engine && uvicorn app.main:app --port 8811")
@@ -291,7 +303,7 @@ def main():
         print()
         
     except Exception as e:
-        print(f"\n❌ TEST FAILED: {e}")
+        print(f"\n[FAIL] TEST FAILED: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

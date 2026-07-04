@@ -183,6 +183,14 @@ def compute_low_volatility_metrics(
     Returns:
         DataFrame with columns: stock_id, realized_vol, downside_dev, beta, max_drawdown
     """
+    # Ensure indexes are converted to pandas DatetimeIndex for alignment
+    stock_prices = stock_prices.copy()
+    stock_prices.index = pd.to_datetime(stock_prices.index)
+    
+    if index_prices is not None:
+        index_prices = index_prices.copy()
+        index_prices.index = pd.to_datetime(index_prices.index)
+        
     results = []
     
     for stock_id in stock_prices.columns:

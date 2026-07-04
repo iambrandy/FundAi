@@ -1,0 +1,27 @@
+# Dependency directories
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.pytest_cache/
+
+# Databases & Cache
+*.db
+*.db-journal
+*.db-wal
+cache/
+services/quant-engine/cache/
+
+# Backtest Reports & Logs
+regime_backtest_results.*
+regime_backtest_results_regime_history.csv
+*.log

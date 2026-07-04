@@ -36,7 +36,7 @@ from scipy.stats import norm
 from typing import Optional
 
 from app.scoring.low_volatility_factor import compute_low_volatility_metrics, score_low_volatility
-from app.scoring.regime_detection import MarketRegime, detect_market_regime, get_regime_factor_weights
+from app.scoring.regime_detection import MarketRegime, detect_market_regime, get_regime_factor_weights, RegimeConfig
 
 
 # ----------------------------------------------------------------------------
@@ -111,6 +111,7 @@ def compute_factor_scores(
     index_prices: Optional[pd.Series] = None,
     regime: Optional[MarketRegime] = None,
     use_regime_weights: bool = True,
+    regime_config: Optional[RegimeConfig] = None,
 ) -> pd.DataFrame:
     """
     universe_df must contain one row per stock, as of a single date, with columns:
@@ -125,6 +126,7 @@ def compute_factor_scores(
         index_prices: Series with index=dates, values=index close (for beta calculation)
         regime: Detected market regime (if None and use_regime_weights=True, will auto-detect)
         use_regime_weights: If True, adjust factor weights based on regime
+        regime_config: Configuration for regime detection. If None, default config is used.
 
     Returns the same dataframe with added columns:
         value_score, momentum_score, quality_score, growth_score, low_volatility_score, composite_score
@@ -193,6 +195,24 @@ def compute_factor_scores(
         # If no price history, set low vol score to neutral 50
         df["low_volatility_score"] = 50.0
 
+    # Ensure configuration snapshot exists
+    cfg = regime_config or RegimeConfig()
+    import json
+    config_dict = {
+        "bull_momentum_threshold": cfg.bull_momentum_threshold,
+        "bear_momentum_threshold": cfg.bear_momentum_threshold,
+        "high_vol_percentile": cfg.high_vol_percentile,
+        "sma_fast_days": cfg.sma_fast_days,
+        "sma_slow_days": cfg.sma_slow_days,
+        "enable_smoothing": cfg.enable_smoothing,
+        "smoothing_window": cfg.smoothing_window,
+        "volume_lookback_fast": cfg.volume_lookback_fast,
+        "volume_lookback_slow": cfg.volume_lookback_slow,
+        "volume_confirm_bull": cfg.volume_confirm_bull,
+        "volume_confirm_bear": cfg.volume_confirm_bear
+    }
+    df["regime_config_used"] = json.dumps(config_dict)
+
     # --- Composite Score: Regime-Aware Weighting ---
     if use_regime_weights and regime is not None:
         regime_weights = get_regime_factor_weights(regime)
@@ -213,7 +233,7 @@ def compute_factor_scores(
                 'close': index_prices.values
             }).reset_index(drop=True)
             
-            detected_regime, regime_meta = detect_market_regime(index_df)
+            detected_regime, regime_meta = detect_market_regime(index_df, config=cfg)
             regime_weights = get_regime_factor_weights(detected_regime)
             
             df["composite_score"] = (

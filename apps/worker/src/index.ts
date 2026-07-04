@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { scheduleDailyPipeline } from "./scheduler";
 
 async function main() {

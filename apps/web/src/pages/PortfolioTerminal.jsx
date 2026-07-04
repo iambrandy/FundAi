@@ -1,81 +1,111 @@
 import React, { useState, useEffect, useRef } from "react";
-import { TrendingUp, TrendingDown, Check, X, ChevronRight, Circle } from "lucide-react";
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  Check, 
+  X, 
+  ChevronRight, 
+  Circle, 
+  LogOut, 
+  ShieldAlert, 
+  Cpu, 
+  Layers, 
+  Activity, 
+  DollarSign, 
+  Percent, 
+  ArrowRightLeft,
+  Search,
+  Sparkles,
+  Info
+} from "lucide-react";
+import { 
+  getRecommendations, 
+  decideRecommendation, 
+  getMarketRegime, 
+  getClients, 
+  getPortfolio, 
+  createClient, 
+  createPortfolio 
+} from "../api.js";
 
 // ---------------------------------------------------------------------------
-// Mock data — shape matches the real API responses (Recommendation, Holding,
-// FactorScore models from the Prisma schema) so wiring to the live backend
-// later is a drop-in swap of these constants for fetch() calls.
+// Fallback Mock Data for rich visualization
 // ---------------------------------------------------------------------------
-
-const modelPortfolio = {
-  name: "Quality Growth — India Core",
-  compositeAvg: 71.4,
-  factors: { value: 58, momentum: 74, quality: 82, growth: 76 },
+const defaultModelPortfolio = {
+  name: "Adaptive Alpha Core (India)",
+  compositeAvg: 78.4,
+  factors: { value: 68, momentum: 84, quality: 89, growth: 72, low_volatility: 78 },
+  historicalReturn: [
+    { month: "Jan", return: 4.2 },
+    { month: "Feb", return: 5.8 },
+    { month: "Mar", return: 3.1 },
+    { month: "Apr", return: 8.5 },
+    { month: "May", return: 6.2 },
+    { month: "Jun", return: 9.7 }
+  ]
 };
 
-const tapeItems = [
-  { symbol: "HDFCBANK", score: 78.2, delta: 1.4 },
-  { symbol: "INFY", score: 81.6, delta: 2.1 },
-  { symbol: "TCS", score: 69.3, delta: -0.8 },
-  { symbol: "RELIANCE", score: 74.5, delta: 0.6 },
-  { symbol: "ICICIBANK", score: 76.8, delta: 1.9 },
-  { symbol: "TITAN", score: 65.1, delta: -1.2 },
-  { symbol: "ASIANPAINT", score: 71.9, delta: 0.3 },
-  { symbol: "BAJFINANCE", score: 79.4, delta: 2.7 },
+const defaultTapeItems = [
+  { symbol: "RELIANCE", score: 84.5, delta: 1.2 },
+  { symbol: "HDFCBANK", score: 79.8, delta: -0.4 },
+  { symbol: "INFY", score: 81.2, delta: 2.3 },
+  { symbol: "TCS", score: 76.5, delta: -1.1 },
+  { symbol: "ICICIBANK", score: 82.1, delta: 0.8 },
+  { symbol: "TITAN", score: 68.3, delta: -2.0 },
+  { symbol: "BAJFINANCE", score: 88.6, delta: 3.4 },
+  { symbol: "SUNPHARMA", score: 77.4, delta: 0.5 },
+  { symbol: "TATAMOTORS", score: 83.2, delta: 2.1 },
+  { symbol: "HINDUNILVR", score: 71.8, delta: -0.2 }
 ];
 
-const holdings = [
-  { symbol: "HDFCBANK", sector: "Banking", qty: 120, avgPrice: 1542.3, ltp: 1612.8, weight: 8.1 },
-  { symbol: "INFY", sector: "IT", qty: 85, avgPrice: 1398.0, ltp: 1465.2, weight: 7.4 },
-  { symbol: "TCS", sector: "IT", qty: 40, avgPrice: 3812.5, ltp: 3765.0, weight: 9.0 },
-  { symbol: "RELIANCE", sector: "Energy", qty: 60, avgPrice: 2410.0, ltp: 2489.6, weight: 8.9 },
-  { symbol: "ICICIBANK", sector: "Banking", qty: 150, avgPrice: 1085.4, ltp: 1142.9, weight: 10.3 },
-  { symbol: "TITAN", sector: "Consumer", qty: 45, avgPrice: 3298.0, ltp: 3241.5, weight: 8.1 },
+const mockHoldings = [
+  { symbol: "HDFCBANK", sector: "Financial Services", qty: 140, avgPrice: 1510.4, ltp: 1612.8, weight: 14.5, pnl: 14336 },
+  { symbol: "INFY", sector: "Technology", qty: 95, avgPrice: 1380.2, ltp: 1465.2, weight: 10.2, pnl: 8075 },
+  { symbol: "RELIANCE", sector: "Energy & Utilities", qty: 75, avgPrice: 2390.0, ltp: 2489.6, weight: 13.8, pnl: 7470 },
+  { symbol: "ICICIBANK", sector: "Financial Services", qty: 160, avgPrice: 1060.0, ltp: 1142.9, weight: 11.2, pnl: 13264 },
+  { symbol: "TCS", sector: "Technology", qty: 35, avgPrice: 3820.0, ltp: 3765.0, weight: 9.6, pnl: -1925 },
+  { symbol: "BAJFINANCE", sector: "Financial Services", qty: 30, avgPrice: 6980.5, ltp: 7214.2, weight: 15.8, pnl: 7011 }
 ];
 
-const recommendations = [
+const mockRecommendations = [
   {
-    id: "REC-0412",
+    id: "REC-2208",
     action: "BUY",
     symbol: "BAJFINANCE",
-    weightDrift: 2.8,
-    rationale:
-      "Scores strongly on balance sheet quality and earnings growth relative to peers. Composite score 79.4/100, up from 76.7 last cycle on improved ROE.",
+    weightDrift: 3.2,
+    rationale: "Quant score rose to 88.6/100 following exceptional Q1 ROE updates and robust asset quality metrics. Rebalancing to secure dynamic momentum targets.",
     status: "PENDING",
+    timestamp: "10:42"
   },
   {
-    id: "REC-0413",
+    id: "REC-2209",
     action: "SELL",
     symbol: "TITAN",
-    weightDrift: -1.9,
-    rationale:
-      "Comparatively weak on price momentum and valuation versus consumer discretionary peers. Composite score 65.1/100, trimming to fund higher-conviction names.",
+    weightDrift: -2.4,
+    rationale: "Underperformed momentum limits relative to consumer cyclical benchmarks. Target weight trim secures defensive cash liquidity ratios.",
     status: "PENDING",
+    timestamp: "10:43"
   },
   {
-    id: "REC-0414",
+    id: "REC-2210",
     action: "REBALANCE",
-    symbol: "TCS",
-    weightDrift: -1.1,
-    rationale:
-      "Position has drifted 1.1pp above target weight after recent price strength. Trimming back to model allocation to maintain sector discipline.",
+    symbol: "RELIANCE",
+    weightDrift: 1.8,
+    rationale: "Position has drifted 1.8% below target profile under recent range-bound consolidation phases. Increasing weight allocation to target.",
     status: "PENDING",
-  },
+    timestamp: "10:45"
+  }
 ];
-
-// ---------------------------------------------------------------------------
 
 function useTapeScroll() {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) return;
     let raf;
     let x = 0;
     const step = () => {
-      x -= 0.4;
+      x -= 0.5;
       if (Math.abs(x) >= el.scrollWidth / 2) x = 0;
       el.style.transform = `translateX(${x}px)`;
       raf = requestAnimationFrame(step);
@@ -86,331 +116,1013 @@ function useTapeScroll() {
   return ref;
 }
 
-function SignalTape() {
-  const ref = useTapeScroll();
-  const items = [...tapeItems, ...tapeItems];
-  return (
-    <div className="tape-wrap">
-      <div className="tape-track" ref={ref}>
-        {items.map((t, i) => (
-          <span className="tape-item" key={i}>
-            <span className="tape-symbol">{t.symbol}</span>
-            <span className="tape-score">{t.score.toFixed(1)}</span>
-            <span className={`tape-delta ${t.delta >= 0 ? "up" : "down"}`}>
-              {t.delta >= 0 ? "▲" : "▼"} {Math.abs(t.delta).toFixed(1)}
-            </span>
-            <span className="tape-sep">·</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
+export default function FundAITerminal({ user, onLogout }) {
+  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [clientsList, setClientsList] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [selectedPortfolio, setSelectedPortfolio] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Loaded dataset
+  const [recs, setRecs] = useState(mockRecommendations);
+  const [holdings, setHoldings] = useState(mockHoldings);
+  const [modelPortfolio, setModelPortfolio] = useState(defaultModelPortfolio);
+  const [tapeItems, setTapeItems] = useState(defaultTapeItems);
+  
+  const [marketRegime, setMarketRegime] = useState({
+    regime: "BULL",
+    interpretation: "Strong index momentum with price trading above the 200-day SMA. High-conviction focus placed on growth and momentum factors."
+  });
 
-function FactorBar({ label, value }) {
-  return (
-    <div className="factor-row">
-      <span className="factor-label">{label}</span>
-      <div className="factor-track">
-        <div className="factor-fill" style={{ width: `${value}%` }} />
-      </div>
-      <span className="factor-value">{value}</span>
-    </div>
-  );
-}
-
-function RecommendationTicket({ rec, onDecide }) {
-  const actionColor =
-    rec.action === "BUY" ? "var(--gain)" : rec.action === "SELL" ? "var(--loss)" : "var(--gold)";
-  return (
-    <div className="ticket">
-      <div className="ticket-head">
-        <span className="ticket-id">{rec.id}</span>
-        <span className="ticket-action" style={{ color: actionColor, borderColor: actionColor }}>
-          {rec.action}
-        </span>
-        <span className="ticket-symbol">{rec.symbol}</span>
-        <span className={`ticket-drift ${rec.weightDrift >= 0 ? "up" : "down"}`}>
-          {rec.weightDrift >= 0 ? "+" : ""}
-          {rec.weightDrift.toFixed(1)}pp
-        </span>
-      </div>
-      <p className="ticket-rationale">{rec.rationale}</p>
-      <div className="ticket-actions">
-        <button className="btn btn-approve" onClick={() => onDecide(rec.id, "APPROVED")}>
-          <Check size={14} strokeWidth={2.5} /> Approve
-        </button>
-        <button className="btn btn-reject" onClick={() => onDecide(rec.id, "REJECTED")}>
-          <X size={14} strokeWidth={2.5} /> Reject
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function FundAITerminal() {
-  const [recs, setRecs] = useState(recommendations);
+  const getRegimeStyles = (regime) => {
+    switch (regime) {
+      case "BULL":
+        return {
+          glowColor: "rgba(62, 207, 142, 0.2)",
+          borderColor: "rgba(62, 207, 142, 0.4)",
+          textColor: "var(--neon-green)",
+          shadowColor: "62, 207, 142",
+          label: "Volume Confirmed Bull Market",
+        };
+      case "BEAR":
+        return {
+          glowColor: "rgba(255, 74, 107, 0.2)",
+          borderColor: "rgba(255, 74, 107, 0.4)",
+          textColor: "var(--neon-rose)",
+          shadowColor: "255, 74, 107",
+          label: "Defensive Bear Market",
+        };
+      case "HIGH_VOLATILITY":
+        return {
+          glowColor: "rgba(255, 170, 0, 0.2)",
+          borderColor: "rgba(255, 170, 0, 0.4)",
+          textColor: "var(--neon-amber)",
+          shadowColor: "255, 170, 0",
+          label: "High Volatility Regime",
+        };
+      case "SIDEWAYS":
+      default:
+        return {
+          glowColor: "rgba(0, 240, 255, 0.2)",
+          borderColor: "rgba(0, 240, 255, 0.4)",
+          textColor: "var(--neon-cyan)",
+          shadowColor: "0, 240, 255",
+          label: "Range-bound Sideways Market",
+        };
+    }
+  };
+  
   const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(false);
 
+  // Portfolio calculations
   const totalValue = holdings.reduce((sum, h) => sum + h.qty * h.ltp, 0);
   const totalCost = holdings.reduce((sum, h) => sum + h.qty * h.avgPrice, 0);
-  const totalGainPct = ((totalValue - totalCost) / totalCost) * 100;
+  const totalPnl = totalValue - totalCost;
+  const totalGainPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
-  function handleDecide(id, decision) {
-    setRecs((prev) => prev.map((r) => (r.id === id ? { ...r, status: decision } : r)));
-    setToast(`${id} ${decision === "APPROVED" ? "approved" : "rejected"}`);
-    setTimeout(() => setToast(null), 2200);
+  useEffect(() => {
+    async function loadMarketState() {
+      try {
+        const regimeRes = await getMarketRegime();
+        if (regimeRes) setMarketRegime(regimeRes);
+      } catch (err) {
+        console.warn("Could not retrieve online market indicators.");
+      }
+    }
+    loadMarketState();
+  }, []);
+
+  useEffect(() => {
+    if (isDemoMode) {
+      setRecs(mockRecommendations);
+      setHoldings(mockHoldings);
+      setModelPortfolio(defaultModelPortfolio);
+      return;
+    }
+
+    async function loadDatabaseState() {
+      setLoading(true);
+      try {
+        const clients = await getClients();
+        setClientsList(clients);
+        if (clients && clients.length > 0) {
+          setSelectedClient(clients[0]);
+          if (clients[0].portfolios && clients[0].portfolios.length > 0) {
+            loadPortfolioDetails(clients[0].portfolios[0].id);
+          } else {
+            setHoldings([]);
+            setRecs([]);
+          }
+        } else {
+          setSelectedClient(null);
+          setSelectedPortfolio(null);
+          setHoldings([]);
+          setRecs([]);
+        }
+      } catch (err) {
+        showToast("Database server offline. Reverting to sandbox demo.");
+        setIsDemoMode(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadDatabaseState();
+  }, [isDemoMode]);
+
+  async function loadPortfolioDetails(portId) {
+    try {
+      const port = await getPortfolio(portId);
+      setSelectedPortfolio(port);
+      if (port.holdings) {
+        const mapped = port.holdings.map(h => {
+          const qty = parseFloat(h.quantity);
+          const avgPrice = parseFloat(h.avgBuyPrice);
+          const ltp = parseFloat(h.stock.priceHistory?.[0]?.close || h.avgBuyPrice);
+          return {
+            symbol: h.stock.symbol,
+            sector: h.stock.sector || "Other",
+            qty,
+            avgPrice,
+            ltp,
+            weight: 0,
+            pnl: (ltp - avgPrice) * qty
+          };
+        });
+        const totalPortValue = mapped.reduce((sum, item) => sum + item.qty * item.ltp, 0);
+        mapped.forEach(item => {
+          item.weight = totalPortValue > 0 ? (item.qty * item.ltp / totalPortValue) * 100 : 0;
+        });
+        setHoldings(mapped);
+      }
+      const pendingRecs = await getRecommendations(portId);
+      if (pendingRecs) {
+        setRecs(pendingRecs.map(r => ({
+          id: r.id,
+          action: r.action,
+          symbol: r.stock?.symbol || "Stock",
+          weightDrift: parseFloat(r.suggestedWeightPct || 0),
+          rationale: r.rationaleText,
+          status: r.status,
+          timestamp: new Date(r.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        })));
+      }
+    } catch (e) {
+      showToast("Error retrieving database portfolio");
+    }
   }
 
-  const pending = recs.filter((r) => r.status === "PENDING");
+  async function handleCreateMockAsset() {
+    setLoading(true);
+    try {
+      const cli = await createClient({
+        displayName: "Sandeep Rao (HNI Account)",
+        email: "sandeep@outlook.com",
+        phone: "+919830094801"
+      });
+      const port = await createPortfolio({
+        clientId: cli.id,
+        name: "Equity Dynamic Alpha Focus",
+        baseCurrency: "INR"
+      });
+      showToast("Created model data in database.");
+      setIsDemoMode(false);
+    } catch (e) {
+      showToast(`Creation failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  async function handleDecide(id, decision) {
+    if (isDemoMode) {
+      setRecs(prev => prev.map(r => r.id === id ? { ...r, status: decision } : r));
+      showToast(`${id} decision recorded as: ${decision}`);
+      return;
+    }
+    try {
+      await decideRecommendation(id, decision);
+      showToast(`${id} ${decision.toLowerCase()} successfully.`);
+      if (selectedPortfolio) loadPortfolioDetails(selectedPortfolio.id);
+    } catch (e) {
+      showToast(`Error applying recommendation: ${e.message}`);
+    }
+  }
+
+  const tapeRef = useTapeScroll();
+  const pendingRecs = recs.filter(r => r.status === "PENDING");
+  const filteredTape = tapeItems.filter(item => 
+    item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
-    <div className="terminal">
+    <div className="hq-terminal">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
 
-        * { box-sizing: border-box; }
-        .terminal {
-          --ink: #0A0F1C;
-          --surface: #131B2E;
-          --surface-2: #17203690;
-          --hairline: #232C42;
-          --text: #EAEDF5;
-          --muted: #8A93AC;
-          --gold: #E3A857;
-          --gain: #3ECF8E;
-          --loss: #FF6B6B;
-          background: var(--ink);
-          color: var(--text);
-          font-family: 'Inter', sans-serif;
+        :root {
+          --panel-border: 1px solid rgba(255, 255, 255, 0.05);
+          --neon-cyan: #00f0ff;
+          --neon-amber: #ffaa00;
+          --neon-green: #3ecf8e;
+          --neon-rose: #ff4a6b;
+          --bg-dark: #070b19;
+          --panel-bg: rgba(16, 24, 48, 0.45);
+        }
+
+        .hq-terminal {
+          background: var(--bg-dark);
+          color: #eaedf5;
+          font-family: 'Plus Jakarta Sans', sans-serif;
           min-height: 100vh;
-          padding-bottom: 48px;
+          overflow-x: hidden;
+          position: relative;
         }
-        .terminal * { font-family: inherit; }
-        .mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
 
-        /* --- Signal tape --- */
+        .hq-terminal * {
+          box-sizing: border-box;
+          font-family: inherit;
+        }
+
+        .mono {
+          font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* --- Header Signal Tape --- */
         .tape-wrap {
-          border-bottom: 1px solid var(--hairline);
-          background: #0D1424;
+          background: #090e21;
+          border-bottom: var(--panel-border);
           overflow: hidden;
+          padding: 8px 0;
+          position: relative;
+        }
+        .tape-track {
+          display: inline-flex;
           white-space: nowrap;
-          padding: 9px 0;
+          will-change: transform;
         }
-        .tape-track { display: inline-flex; will-change: transform; }
         .tape-item {
-          display: inline-flex; align-items: center; gap: 8px;
-          font-family: 'IBM Plex Mono', monospace;
-          font-size: 12px; padding: 0 16px;
-          color: var(--muted);
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 11px;
+          padding: 0 20px;
+          color: #8c9bb0;
+          border-right: 1px solid rgba(255, 255, 255, 0.03);
         }
-        .tape-symbol { color: var(--gold); font-weight: 600; letter-spacing: 0.03em; }
-        .tape-score { color: var(--text); }
-        .tape-delta.up { color: var(--gain); }
-        .tape-delta.down { color: var(--loss); }
-        .tape-sep { color: var(--hairline); }
+        .tape-symbol {
+          color: #eaedf5;
+          font-weight: 700;
+        }
+        .tape-score {
+          color: var(--neon-cyan);
+        }
+        .tape-delta.up { color: var(--neon-green); }
+        .tape-delta.down { color: var(--neon-rose); }
 
-        /* --- Header --- */
-        .header {
-          display: flex; justify-content: space-between; align-items: flex-end;
-          padding: 32px 40px 24px; border-bottom: 1px solid var(--hairline);
+        /* --- Navigation & Controls --- */
+        .nav-bar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: rgba(13, 20, 41, 0.85);
+          border-bottom: var(--panel-border);
+          padding: 12px 30px;
+          backdrop-filter: blur(10px);
         }
-        .brand { display: flex; align-items: center; gap: 10px; }
-        .brand-mark {
-          width: 8px; height: 8px; background: var(--gold);
+        .brand-container {
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
-        .brand-name {
-          font-family: 'Fraunces', serif; font-size: 15px; letter-spacing: 0.08em;
-          text-transform: uppercase; color: var(--text);
+        .brand-icon {
+          width: 24px;
+          height: 24px;
+          background: linear-gradient(135deg, var(--neon-cyan) 0%, #0055ff 100%);
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
-        .brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-top: 2px;}
-        .header-value { text-align: right; }
-        .header-value .label { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
-        .header-value .num {
-          font-family: 'Fraunces', serif; font-size: 40px; font-weight: 500;
-          line-height: 1.1; margin-top: 4px;
+        .brand-title {
+          font-family: 'JetBrains Mono', monospace;
+          font-weight: 700;
+          font-size: 16px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
         }
-        .header-value .delta { font-size: 13px; margin-top: 4px; }
-        .header-value .delta.up { color: var(--gain); }
-        .header-value .delta.down { color: var(--loss); }
+        .brand-badge {
+          font-size: 9px;
+          background: rgba(0, 240, 255, 0.1);
+          color: var(--neon-cyan);
+          border: 1px solid rgba(0, 240, 255, 0.25);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 600;
+        }
 
-        /* --- Layout --- */
-        .body { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0; }
-        @media (max-width: 900px) { .body { grid-template-columns: 1fr; } }
-        .panel { padding: 32px 40px; }
-        .panel + .panel { border-left: 1px solid var(--hairline); }
-        @media (max-width: 900px) { .panel + .panel { border-left: none; border-top: 1px solid var(--hairline); } }
-
-        .section-title {
-          font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-          color: var(--muted); margin-bottom: 18px; display: flex; align-items: center; gap: 8px;
+        .auth-widget {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          font-size: 12.5px;
         }
-        .section-title .rule { flex: 1; height: 1px; background: var(--hairline); }
-
-        /* --- Holdings ledger --- */
-        table { width: 100%; border-collapse: collapse; }
-        thead th {
-          text-align: left; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
-          color: var(--muted); font-weight: 500; padding-bottom: 10px; border-bottom: 1px solid var(--hairline);
+        .mode-toggle-group {
+          display: flex;
+          background: rgba(0, 0, 0, 0.25);
+          border-radius: 8px;
+          padding: 3px;
+          border: 1px solid rgba(255, 255, 255, 0.03);
         }
-        thead th.num { text-align: right; }
-        tbody td {
-          padding: 12px 0; border-bottom: 1px solid var(--hairline); font-size: 13px;
+        .mode-btn {
+          border: none;
+          background: transparent;
+          color: #8c9bb0;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 11.5px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
         }
-        tbody td.num { text-align: right; }
-        .sym { font-weight: 600; }
-        .sector-tag { font-size: 10px; color: var(--muted); margin-left: 8px; }
-        .gain-cell.up { color: var(--gain); }
-        .gain-cell.down { color: var(--loss); }
-
-        /* --- Factor panel --- */
-        .factor-panel { margin-bottom: 32px; }
-        .factor-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
-        .factor-name { font-family: 'Fraunces', serif; font-size: 18px; }
-        .factor-composite { font-size: 22px; color: var(--gold); }
-        .factor-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-        .factor-label { width: 84px; font-size: 12px; color: var(--muted); }
-        .factor-track { flex: 1; height: 5px; background: var(--hairline); }
-        .factor-fill { height: 100%; background: var(--gold); }
-        .factor-value { width: 28px; text-align: right; font-size: 12px; }
-
-        /* --- Recommendation tickets --- */
-        .ticket {
-          border: 1px solid var(--hairline); padding: 16px; margin-bottom: 12px; background: var(--surface);
+        .mode-btn.active {
+          background: rgba(255, 255, 255, 0.05);
+          color: #eaedf5;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
-        .ticket-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .ticket-id { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); }
-        .ticket-action {
-          font-size: 10px; letter-spacing: 0.05em; border: 1px solid; padding: 2px 6px; font-weight: 600;
+        .signout-btn {
+          background: transparent;
+          border: none;
+          color: #8c9bb0;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-weight: 500;
+          transition: color 0.2s;
         }
-        .ticket-symbol { font-weight: 600; font-size: 13px; }
-        .ticket-drift { margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
-        .ticket-drift.up { color: var(--gain); }
-        .ticket-drift.down { color: var(--loss); }
-        .ticket-rationale { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: 0 0 14px; }
-        .ticket-actions { display: flex; gap: 8px; }
-        .btn {
-          display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
-          padding: 7px 12px; border: 1px solid var(--hairline); background: transparent; color: var(--text);
-          cursor: pointer; transition: border-color 0.15s, color 0.15s;
+        .signout-btn:hover {
+          color: var(--neon-rose);
         }
-        .btn-approve:hover { border-color: var(--gain); color: var(--gain); }
-        .btn-reject:hover { border-color: var(--loss); color: var(--loss); }
 
-        .empty-state { font-size: 12.5px; color: var(--muted); padding: 20px 0; border: 1px dashed var(--hairline); text-align: center; }
+        /* --- Dashboard Grid --- */
+        .grid-layout {
+          display: grid;
+          grid-template-columns: 2.2fr 1fr;
+          gap: 20px;
+          padding: 24px 30px;
+        }
+        @media (max-width: 1100px) {
+          .grid-layout {
+            grid-template-columns: 1fr;
+          }
+        }
 
-        .toast {
-          position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-          background: var(--surface); border: 1px solid var(--gold); color: var(--text);
-          padding: 10px 18px; font-size: 12.5px; font-family: 'IBM Plex Mono', monospace;
+        /* --- Panel Card Component --- */
+        .glass-panel {
+          background: var(--panel-bg);
+          border: var(--panel-border);
+          border-radius: 16px;
+          padding: 24px;
+          backdrop-filter: blur(15px);
+          position: relative;
+          overflow: hidden;
+        }
+        .panel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+          padding-bottom: 12px;
+        }
+        .panel-title {
+          font-size: 13.5px;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          color: #8c9bb0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .pulse-dot {
+          width: 6px;
+          height: 6px;
+          background: var(--neon-cyan);
+          border-radius: 50%;
+          box-shadow: 0 0 8px var(--neon-cyan);
+          animation: pulse 2s infinite alternate;
+        }
+        @keyframes pulse {
+          0% { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+
+        /* --- Financial Metrics Bar --- */
+        .metrics-banner {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+        @media (max-width: 600px) {
+          .metrics-banner {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+        .metric-card {
+          background: rgba(0, 0, 0, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.02);
+          border-radius: 10px;
+          padding: 14px 18px;
+        }
+        .metric-label {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #8c9bb0;
+          margin-bottom: 6px;
+        }
+        .metric-val {
+          font-size: 18px;
+          font-weight: 700;
+          color: #eaedf5;
+        }
+
+        /* --- Ledger Table Styling --- */
+        .table-wrap {
+          overflow-x: auto;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: left;
+        }
+        th {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #8c9bb0;
+          font-weight: 600;
+          padding: 10px 12px;
+          border-bottom: var(--panel-border);
+        }
+        td {
+          padding: 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+          font-size: 13px;
+        }
+        tr:hover td {
+          background: rgba(255, 255, 255, 0.01);
+        }
+        .ticker-symbol {
+          font-weight: 700;
+          color: #eaedf5;
+        }
+        .sector-badge {
+          display: inline-block;
+          font-size: 9.5px;
+          color: var(--neon-cyan);
+          background: rgba(0, 240, 255, 0.06);
+          border: 1px solid rgba(0, 240, 255, 0.15);
+          padding: 2px 6px;
+          border-radius: 4px;
+          margin-left: 8px;
+        }
+        .val-gain { color: var(--neon-green); }
+        .val-loss { color: var(--neon-rose); }
+
+        /* --- Custom mini chart --- */
+        .sparkline-row {
+          display: flex;
+          align-items: flex-end;
+          gap: 3px;
+          height: 24px;
+          width: 80px;
+        }
+        .spark-bar {
+          flex: 1;
+          background: rgba(0, 240, 255, 0.15);
+          border-radius: 2px;
+          transition: background 0.3s;
+        }
+        .spark-bar:hover {
+          background: var(--neon-cyan);
+        }
+
+        /* --- Recommendation Tickets --- */
+        .recs-container {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .rec-ticket {
+          background: rgba(14, 22, 45, 0.65);
+          border: var(--panel-border);
+          border-radius: 12px;
+          padding: 16px 20px;
+          transition: transform 0.2s, border-color 0.2s;
+        }
+        .rec-ticket:hover {
+          border-color: rgba(255, 255, 255, 0.1);
+        }
+        .ticket-header-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+        .badge-action {
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          padding: 3px 8px;
+          border-radius: 4px;
+          border: 1px solid transparent;
+        }
+        .badge-action.buy {
+          background: rgba(62, 207, 142, 0.08);
+          color: var(--neon-green);
+          border-color: rgba(62, 207, 142, 0.2);
+        }
+        .badge-action.sell {
+          background: rgba(255, 74, 107, 0.08);
+          color: var(--neon-rose);
+          border-color: rgba(255, 74, 107, 0.2);
+        }
+        .badge-action.rebalance {
+          background: rgba(255, 170, 0, 0.08);
+          color: var(--neon-amber);
+          border-color: rgba(255, 170, 0, 0.2);
+        }
+        .rec-desc {
+          font-size: 12.5px;
+          color: #8c9bb0;
+          line-height: 1.5;
+          margin-bottom: 14px;
+        }
+        .ticket-controls {
+          display: flex;
+          gap: 10px;
+        }
+        .action-button {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          padding: 8px 16px;
+          border-radius: 6px;
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: transparent;
+          color: #eaedf5;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .action-button.approve:hover {
+          background: rgba(62, 207, 142, 0.08);
+          border-color: var(--neon-green);
+          color: var(--neon-green);
+        }
+        .action-button.reject:hover {
+          background: rgba(255, 74, 107, 0.08);
+          border-color: var(--neon-rose);
+          color: var(--neon-rose);
+        }
+
+        /* --- Right Sidebar Widgets --- */
+        .right-sidebar {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        /* --- Factor Score Bars --- */
+        .factor-card {
+          margin-bottom: 16px;
+        }
+        .factor-title-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          margin-bottom: 8px;
+        }
+        .factor-bar-bg {
+          height: 6px;
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+        .factor-bar-fill {
+          height: 100%;
+          background: linear-gradient(90deg, var(--neon-cyan) 0%, #0088ff 100%);
+          border-radius: 3px;
+        }
+
+        /* --- Market Intelligence Widget --- */
+        .intel-badge {
+          background: rgba(255, 255, 255, 0.02);
+          border: var(--panel-border);
+          border-radius: 12px;
+          padding: 18px;
+        }
+        .regime-status {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--neon-amber);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 10px;
+        }
+        .regime-text {
+          font-size: 12.5px;
+          color: #8c9bb0;
+          line-height: 1.5;
+        }
+
+        /* --- Toast Notifications --- */
+        .hq-toast {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          background: rgba(13, 20, 41, 0.95);
+          border: 1px solid var(--neon-cyan);
+          border-radius: 8px;
+          padding: 12px 20px;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px;
+          color: #eaedf5;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+          z-index: 10000;
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
       `}</style>
 
-      <SignalTape />
-
-      <div className="header">
-        <div>
-          <div className="brand">
-            <div className="brand-mark" />
-            <span className="brand-name">FundAI Terminal</span>
-          </div>
-          <div className="brand-sub">Advisory portfolio · Model: {modelPortfolio.name}</div>
-        </div>
-        <div className="header-value">
-          <div className="label">Portfolio Value</div>
-          <div className="num mono">
-            ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-          </div>
-          <div className={`delta mono ${totalGainPct >= 0 ? "up" : "down"}`}>
-            {totalGainPct >= 0 ? <TrendingUp size={12} style={{display:"inline", marginRight:4}}/> : <TrendingDown size={12} style={{display:"inline", marginRight:4}}/>}
-            {totalGainPct >= 0 ? "+" : ""}
-            {totalGainPct.toFixed(2)}% since inception
-          </div>
+      {/* 1. Rolling ticker bar */}
+      <div className="tape-wrap">
+        <div className="tape-track" ref={tapeRef}>
+          {tapeItems.map((item, idx) => (
+            <span className="tape-item" key={idx}>
+              <span className="tape-symbol">{item.symbol}</span>
+              <span className="tape-score">{item.score.toFixed(1)}</span>
+              <span className={`tape-delta ${item.delta >= 0 ? "up" : "down"}`}>
+                {item.delta >= 0 ? "+" : ""}{item.delta.toFixed(1)}%
+              </span>
+            </span>
+          ))}
         </div>
       </div>
 
-      <div className="body">
-        <div className="panel">
-          <div className="section-title">Holdings <div className="rule" /></div>
-          <table>
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th className="num">Qty</th>
-                <th className="num">Avg</th>
-                <th className="num">LTP</th>
-                <th className="num">Weight</th>
-                <th className="num">P&amp;L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map((h) => {
-                const pnlPct = ((h.ltp - h.avgPrice) / h.avgPrice) * 100;
-                return (
-                  <tr key={h.symbol}>
-                    <td>
-                      <span className="sym">{h.symbol}</span>
-                      <span className="sector-tag">{h.sector}</span>
-                    </td>
-                    <td className="num mono">{h.qty}</td>
-                    <td className="num mono">{h.avgPrice.toFixed(2)}</td>
-                    <td className="num mono">{h.ltp.toFixed(2)}</td>
-                    <td className="num mono">{h.weight.toFixed(1)}%</td>
-                    <td className={`num mono gain-cell ${pnlPct >= 0 ? "up" : "down"}`}>
-                      {pnlPct >= 0 ? "+" : ""}
-                      {pnlPct.toFixed(2)}%
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* 2. Sleek Menu Bar */}
+      <div className="nav-bar">
+        <div className="brand-container">
+          <div className="brand-icon">
+            <Cpu size={14} color="#060913" />
+          </div>
+          <span className="brand-title">FundAI Gateway</span>
+          <span className="brand-badge">PRO v0.2</span>
+        </div>
 
-          <div style={{ marginTop: 40 }}>
-            <div className="section-title">Recommendations — Pending Approval <div className="rule" /></div>
-            {pending.length === 0 ? (
-              <div className="empty-state">No pending recommendations. All clear.</div>
+        <div className="auth-widget">
+          <div className="mode-toggle-group">
+            <button 
+              className={`mode-btn ${isDemoMode ? "active" : ""}`}
+              onClick={() => setIsDemoMode(true)}
+            >
+              Demo Sandbox
+            </button>
+            <button 
+              className={`mode-btn ${!isDemoMode ? "active" : ""}`}
+              onClick={() => setIsDemoMode(false)}
+            >
+              Live Database Mode
+            </button>
+          </div>
+          
+          <span style={{ color: "rgba(255,255,255,0.1)" }}>|</span>
+
+          <span className="mono" style={{ color: "#8c9bb0" }}>{user.email}</span>
+          <button className="signout-btn" onClick={onLogout}>
+            <LogOut size={14} /> Exit
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Multi-Pane Grid Layout */}
+      <div className="grid-layout">
+        
+        {/* Left Side Panels */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          
+          {/* Portfolio Performance & Holdings Table */}
+          <div className="glass-panel">
+            <div className="panel-header">
+              <h3 className="panel-title">
+                <div className="pulse-dot" /> Client Portfolio Holdings
+              </h3>
+              <span className="mono" style={{ fontSize: 11, color: "#8c9bb0" }}>
+                {!isDemoMode && selectedClient ? `${selectedClient.displayName}` : "ADAPTIVE_ALPHA_INDEX"}
+              </span>
+            </div>
+
+            {/* Premium Metric Bar */}
+            <div className="metrics-banner">
+              <div className="metric-card">
+                <div className="metric-label">NAV Valuation</div>
+                <div className="metric-val mono" style={{ color: "var(--neon-cyan)" }}>
+                  ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Cost Basis</div>
+                <div className="metric-val mono">
+                  ₹{totalCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Cumulative P&amp;L</div>
+                <div className="metric-val mono" style={{ color: totalPnl >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
+                  ₹{totalPnl.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Relative Return</div>
+                <div className="metric-val mono" style={{ color: totalGainPct >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
+                  {totalGainPct >= 0 ? "+" : ""}{totalGainPct.toFixed(2)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Holdings Table */}
+            {holdings.length === 0 ? (
+              <div className="empty-state">
+                <ShieldAlert size={24} style={{ color: "var(--neon-amber)", marginBottom: 12 }} />
+                <p style={{ fontSize: 13, color: "#8c9bb0" }}>No linked holdings found in this active database.</p>
+                {user.role === "ADVISOR" && (
+                  <button 
+                    className="action-button approve" 
+                    style={{ margin: "16px auto 0" }}
+                    onClick={handleCreateMockAsset}
+                    disabled={loading}
+                  >
+                    Generate Sandbox Assets
+                  </button>
+                )}
+              </div>
             ) : (
-              pending.map((rec) => (
-                <RecommendationTicket key={rec.id} rec={rec} onDecide={handleDecide} />
-              ))
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticker &amp; Sector</th>
+                      <th className="mono" style={{ textAlign: "right" }}>Quantity</th>
+                      <th className="mono" style={{ textAlign: "right" }}>Avg Price</th>
+                      <th className="mono" style={{ textAlign: "right" }}>Last Traded</th>
+                      <th className="mono" style={{ textAlign: "right" }}>Allocation</th>
+                      <th className="mono" style={{ textAlign: "right" }}>Performance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdings.map((h, i) => {
+                      const returnPct = ((h.ltp - h.avgPrice) / h.avgPrice) * 100;
+                      return (
+                        <tr key={h.symbol + i}>
+                          <td>
+                            <span className="ticker-symbol">{h.symbol}</span>
+                            <span className="sector-badge">{h.sector}</span>
+                          </td>
+                          <td className="mono" style={{ textAlign: "right" }}>{h.qty}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>₹{h.avgPrice.toFixed(1)}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>₹{h.ltp.toFixed(1)}</td>
+                          <td className="mono" style={{ textAlign: "right" }}>{h.weight.toFixed(1)}%</td>
+                          <td className={`mono ${returnPct >= 0 ? "val-gain" : "val-loss"}`} style={{ textAlign: "right" }}>
+                            {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(1)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-        </div>
 
-        <div className="panel">
-          <div className="factor-panel">
-            <div className="section-title">Model Factor Profile <div className="rule" /></div>
-            <div className="factor-header">
-              <span className="factor-name">{modelPortfolio.name}</span>
-              <span className="factor-composite mono">{modelPortfolio.compositeAvg}</span>
+          {/* Actionable Recommendations Panel */}
+          <div className="glass-panel">
+            <div className="panel-header">
+              <h3 className="panel-title">
+                <Layers size={14} style={{ color: "var(--neon-amber)" }} /> Pending Adaptive Rebalances
+              </h3>
+              <span className="mono" style={{ fontSize: 11, color: "var(--neon-amber)" }}>
+                {pendingRecs.length} ACTIONABLE_TASKS
+              </span>
             </div>
-            <FactorBar label="Value" value={modelPortfolio.factors.value} />
-            <FactorBar label="Momentum" value={modelPortfolio.factors.momentum} />
-            <FactorBar label="Quality" value={modelPortfolio.factors.quality} />
-            <FactorBar label="Growth" value={modelPortfolio.factors.growth} />
+
+            {pendingRecs.length === 0 ? (
+              <div className="empty-state">
+                <Check size={24} style={{ color: "var(--neon-green)", marginBottom: 12 }} />
+                <p style={{ fontSize: 13, color: "#8c9bb0" }}>All target weights matched. Portfolio balanced.</p>
+              </div>
+            ) : (
+              <div className="recs-container">
+                {pendingRecs.map((rec) => (
+                  <div className="rec-ticket" key={rec.id}>
+                    <div className="ticket-header-row">
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="mono" style={{ fontSize: 11, color: "#8c9bb0" }}>{rec.id}</span>
+                        <span className={`badge-action ${rec.action.toLowerCase()}`}>{rec.action}</span>
+                        <strong className="mono" style={{ fontSize: 14 }}>{rec.symbol}</strong>
+                      </div>
+                      <span className={`mono ${rec.weightDrift >= 0 ? "val-gain" : "val-loss"}`}>
+                        {rec.weightDrift >= 0 ? "+" : ""}{rec.weightDrift.toFixed(1)}% Drift
+                      </span>
+                    </div>
+                    <p className="rec-desc">{rec.rationale}</p>
+                    <div className="ticket-controls">
+                      <button className="action-button approve" onClick={() => handleDecide(rec.id, "APPROVED")}>
+                        <Check size={14} /> Approve Order
+                      </button>
+                      <button className="action-button reject" onClick={() => handleDecide(rec.id, "REJECTED")}>
+                        <X size={14} /> Skip Drift
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="section-title">Decision Log <div className="rule" /></div>
-          {recs.filter((r) => r.status !== "PENDING").length === 0 ? (
-            <div className="empty-state">Decisions on recommendations will appear here.</div>
-          ) : (
-            recs
-              .filter((r) => r.status !== "PENDING")
-              .map((r) => (
-                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "8px 0", borderBottom: "1px solid var(--hairline)" }} className="mono">
-                  <Circle size={6} fill={r.status === "APPROVED" ? "var(--gain)" : "var(--loss)"} color={r.status === "APPROVED" ? "var(--gain)" : "var(--loss)"} />
-                  <span style={{ color: "var(--muted)" }}>{r.id}</span>
-                  <span>{r.symbol}</span>
-                  <ChevronRight size={12} color="var(--muted)" />
-                  <span style={{ color: r.status === "APPROVED" ? "var(--gain)" : "var(--loss)" }}>{r.status}</span>
-                </div>
-              ))
-          )}
         </div>
+
+        {/* Right Sidebar Widgets */}
+        <div className="right-sidebar">
+          
+          {/* Factor Profile */}
+          <div className="glass-panel">
+            <div className="panel-header">
+              <h3 className="panel-title">
+                <Activity size={14} style={{ color: "var(--neon-cyan)" }} /> Model Factor Profile
+              </h3>
+            </div>
+            
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: "bold" }}>{modelPortfolio.name}</span>
+                <span className="mono" style={{ color: "var(--neon-cyan)" }}>{modelPortfolio.compositeAvg} Index</span>
+              </div>
+            </div>
+
+            {Object.entries(modelPortfolio.factors).map(([label, val]) => (
+              <div className="factor-card" key={label}>
+                <div className="factor-title-row">
+                  <span style={{ fontSize: 12, textTransform: "capitalize", color: "#8c9bb0" }}>{label.replace("_", " ")}</span>
+                  <span className="mono" style={{ fontSize: 12 }}>{val}</span>
+                </div>
+                <div className="factor-bar-bg">
+                  <div className="factor-bar-fill" style={{ width: `${val}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Market Intel */}
+          {(() => {
+            const regimeStyles = getRegimeStyles(marketRegime.regime);
+            const confidenceOpacity = marketRegime.metadata ? Math.max(0.15, Math.min(0.65, marketRegime.metadata.vol_percentile)) : 0.35;
+            return (
+              <div className="glass-panel" style={{ transition: "all 0.3s ease" }}>
+                <div className="panel-header">
+                  <h3 className="panel-title">
+                    <Sparkles size={14} style={{ color: regimeStyles.textColor }} /> Adaptive Intelligence
+                  </h3>
+                </div>
+                <div 
+                  className="intel-badge"
+                  style={{
+                    boxShadow: `0 0 20px rgba(${regimeStyles.shadowColor}, ${confidenceOpacity})`,
+                    borderColor: regimeStyles.borderColor,
+                    borderWidth: "1px",
+                    borderStyle: "solid",
+                    transition: "all 0.3s ease-in-out"
+                  }}
+                >
+                  <div className="regime-status" style={{ color: regimeStyles.textColor, display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <Cpu size={16} /> REGIME: {marketRegime.regime}
+                    </span>
+                    <span style={{ fontSize: "11px", opacity: 0.8, fontWeight: "normal", textTransform: "none" }}>
+                      Status: {regimeStyles.label}
+                    </span>
+                  </div>
+                  <p className="regime-text" style={{ fontSize: "12px", color: "#8c9bb0", margin: "8px 0 16px 0", lineHeight: "1.4" }}>
+                    {marketRegime.interpretation}
+                  </p>
+                  
+                  {/* Volatility & Volume Progress Meters */}
+                  {marketRegime.metadata && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderTop: "1px solid rgba(255, 255, 255, 0.05)", paddingTop: "12px" }}>
+                      <div>
+                        <div style={{ display: "flex", justifyItems: "center", justifyContent: "space-between", fontSize: "11px", color: "#8c9bb0", marginBottom: "4px" }}>
+                          <span>Volatility Percentile</span>
+                          <span className="mono">{(marketRegime.metadata.vol_percentile * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="factor-bar-bg" style={{ height: "4px" }}>
+                          <div 
+                            className="factor-bar-fill" 
+                            style={{ 
+                              width: `${marketRegime.metadata.vol_percentile * 100}%`,
+                              height: "100%",
+                              background: marketRegime.metadata.vol_percentile > 0.75 ? "var(--neon-rose)" : "var(--neon-cyan)"
+                            }} 
+                          />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div style={{ display: "flex", justifyItems: "center", justifyContent: "space-between", fontSize: "11px", color: "#8c9bb0", marginBottom: "4px" }}>
+                          <span>Participation Index (Volume)</span>
+                          <span className="mono">{(marketRegime.metadata.volume_ratio || 1.0).toFixed(2)}x</span>
+                        </div>
+                        <div className="factor-bar-bg" style={{ height: "4px" }}>
+                          <div 
+                            className="factor-bar-fill" 
+                            style={{ 
+                              width: `${Math.min(100, (marketRegime.metadata.volume_ratio || 1.0) * 50)}%`,
+                              height: "100%",
+                              background: (marketRegime.metadata.volume_ratio || 1.0) > 1.1 ? "var(--neon-green)" : "rgba(255, 255, 255, 0.15)"
+                            }} 
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Macro Context Overlay */}
+                      {marketRegime.metadata.macro_context && (
+                        <div style={{ marginTop: "6px", fontSize: "11px", borderTop: "1px dashed rgba(255,255,255,0.08)", paddingTop: "8px" }}>
+                          <span style={{ color: "var(--neon-amber)", fontWeight: "600", display: "block", marginBottom: "2px" }}>
+                            Macro / Geopolitical Overlay:
+                          </span>
+                          <p style={{ color: "#7a8a9e", margin: 0, lineHeight: "1.3" }}>
+                            {marketRegime.metadata.macro_context}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Decision Logs */}
+          <div className="glass-panel">
+            <div className="panel-header">
+              <h3 className="panel-title">
+                <ArrowRightLeft size={14} style={{ color: "#8c9bb0" }} /> Transaction Audit
+              </h3>
+            </div>
+
+            {recs.filter(r => r.status !== "PENDING").length === 0 ? (
+              <div className="empty-state" style={{ padding: 12 }}>No transactions logged this session.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {recs
+                  .filter(r => r.status !== "PENDING")
+                  .map((r, i) => (
+                    <div key={r.id + i} style={{ display: "flex", justifyItems: "center", justifyContent: "space-between", fontSize: 12, padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.02)" }} className="mono">
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Circle size={6} fill={r.status === "APPROVED" ? "var(--neon-green)" : "var(--neon-rose)"} color="transparent" />
+                        <span style={{ color: "#8c9bb0" }}>{r.id}</span>
+                        <span>{r.symbol}</span>
+                      </div>
+                      <span style={{ color: r.status === "APPROVED" ? "var(--neon-green)" : "var(--neon-rose)", fontWeight: "bold" }}>
+                        {r.status}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+
       </div>
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="hq-toast">
+          <Info size={14} style={{ color: "var(--neon-cyan)" }} />
+          <span>{toast}</span>
+        </div>
+      )}
     </div>
   );
 }

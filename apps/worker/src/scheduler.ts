@@ -17,7 +17,7 @@ const connection = {
   port: Number(process.env.REDIS_PORT ?? 6379),
 };
 
-export const pipelineQueue = new Queue("daily-pipeline", { connection });
+export const pipelineQueue = new Queue("daily-pipeline", { connection, skipVersionCheck: true });
 
 export async function scheduleDailyPipeline() {
   await pipelineQueue.add(
@@ -48,7 +48,7 @@ export const pipelineWorker = new Worker(
 
     return { ingestionResult, scoringResult };
   },
-  { connection, concurrency: 1 } // sequential by design — scoring must never run against a partial ingestion
+  { connection, concurrency: 1, skipVersionCheck: true } // sequential by design — scoring must never run against a partial ingestion
 );
 
 pipelineWorker.on("completed", (job) => {

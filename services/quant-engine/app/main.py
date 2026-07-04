@@ -11,6 +11,9 @@ from pydantic import BaseModel
 import pandas as pd
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from app.scoring.factor_scoring import compute_factor_scores, generate_rationale, FactorWeights
 from app.portfolio.construction import construct_model_portfolio, ConstructionConstraints, diff_against_current_holdings

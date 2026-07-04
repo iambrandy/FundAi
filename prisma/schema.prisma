@@ -14,7 +14,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -22,18 +22,14 @@ datasource db {
 // Identity & Access
 // ------------------------------------------------------------
 
-enum UserRole {
-  ADVISOR   // manages multiple clients
-  RETAIL    // self-serve, manages own portfolio only
-  ADMIN     // platform ops
-}
+
 
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
   passwordHash  String
   fullName      String
-  role          UserRole
+  role String
   phone         String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -66,7 +62,7 @@ model Client {
 
   // KYC / risk profile — required before any recommendation can be approved
   riskProfile   RiskProfile?
-  kycStatus     KycStatus  @default(PENDING)
+  kycStatus String  @default("PENDING")
 
   portfolios    Portfolio[]
   createdAt     DateTime   @default(now())
@@ -75,30 +71,22 @@ model Client {
   @@index([advisorId])
 }
 
-enum KycStatus {
-  PENDING
-  VERIFIED
-  REJECTED
-}
+
 
 model RiskProfile {
   id                String   @id @default(cuid())
   clientId          String   @unique
   client            Client   @relation(fields: [clientId], references: [id])
 
-  riskTolerance     RiskTolerance
+  riskTolerance String
   investmentHorizonYears Int
-  monthlyInvestable Decimal  @db.Decimal(16, 2)
+  monthlyInvestable Decimal  
   goals             String?  // free text, e.g. "retirement, house down payment"
 
   updatedAt         DateTime @updatedAt
 }
 
-enum RiskTolerance {
-  CONSERVATIVE
-  MODERATE
-  AGGRESSIVE
-}
+
 
 // ------------------------------------------------------------
 // Portfolios, Holdings, Transactions
@@ -135,8 +123,8 @@ model Holding {
   stockId       String
   stock         Stock     @relation(fields: [stockId], references: [id])
 
-  quantity      Decimal   @db.Decimal(18, 4)
-  avgBuyPrice   Decimal   @db.Decimal(16, 4)
+  quantity      Decimal   
+  avgBuyPrice   Decimal   
 
   updatedAt     DateTime  @updatedAt
 
@@ -144,13 +132,7 @@ model Holding {
   @@index([portfolioId])
 }
 
-enum TransactionType {
-  BUY
-  SELL
-  DIVIDEND
-  SPLIT
-  BONUS
-}
+
 
 model Transaction {
   id            String          @id @default(cuid())
@@ -160,10 +142,10 @@ model Transaction {
   stockId       String
   stock         Stock           @relation(fields: [stockId], references: [id])
 
-  type          TransactionType
-  quantity      Decimal         @db.Decimal(18, 4)
-  price         Decimal         @db.Decimal(16, 4)
-  fees          Decimal         @db.Decimal(12, 2) @default(0)
+  type String
+  quantity      Decimal         
+  price         Decimal         
+  fees          Decimal          @default(0)
   executedAt    DateTime
 
   // Was this transaction the result of an approved AI recommendation?
@@ -182,9 +164,9 @@ model PortfolioNavHistory {
   portfolioId   String
   portfolio     Portfolio @relation(fields: [portfolioId], references: [id])
 
-  date          DateTime  @db.Date
-  totalValue    Decimal   @db.Decimal(18, 2)
-  cashBalance   Decimal   @db.Decimal(18, 2) @default(0)
+  date          DateTime  
+  totalValue    Decimal   
+  cashBalance   Decimal    @default(0)
 
   @@unique([portfolioId, date])
   @@index([portfolioId, date])
@@ -223,15 +205,15 @@ model StockFundamental {
   stockId         String
   stock           Stock    @relation(fields: [stockId], references: [id])
 
-  reportDate      DateTime @db.Date
-  peRatio         Decimal? @db.Decimal(10, 2)
-  pbRatio         Decimal? @db.Decimal(10, 2)
-  roe             Decimal? @db.Decimal(6, 2)   // %
-  debtToEquity    Decimal? @db.Decimal(8, 2)
-  epsGrowthYoy    Decimal? @db.Decimal(6, 2)   // %
-  revenueGrowthYoy Decimal? @db.Decimal(6, 2)  // %
-  dividendYield   Decimal? @db.Decimal(6, 2)   // %
-  marketCap       Decimal? @db.Decimal(20, 2)
+  reportDate      DateTime 
+  peRatio         Decimal? 
+  pbRatio         Decimal? 
+  roe             Decimal?    // %
+  debtToEquity    Decimal? 
+  epsGrowthYoy    Decimal?    // %
+  revenueGrowthYoy Decimal?   // %
+  dividendYield   Decimal?    // %
+  marketCap       Decimal? 
 
   @@unique([stockId, reportDate])
   @@index([stockId])
@@ -243,11 +225,11 @@ model StockPrice {
   stockId   String
   stock     Stock    @relation(fields: [stockId], references: [id])
 
-  date      DateTime @db.Date
-  open      Decimal  @db.Decimal(14, 4)
-  high      Decimal  @db.Decimal(14, 4)
-  low       Decimal  @db.Decimal(14, 4)
-  close     Decimal  @db.Decimal(14, 4)
+  date      DateTime 
+  open      Decimal  
+  high      Decimal  
+  low       Decimal  
+  close     Decimal  
   volume    BigInt
 
   @@unique([stockId, date])
@@ -261,12 +243,12 @@ model FactorScore {
   stockId       String
   stock         Stock    @relation(fields: [stockId], references: [id])
 
-  asOfDate      DateTime @db.Date
-  valueScore    Decimal  @db.Decimal(5, 2)  // normalized 0-100
-  momentumScore Decimal  @db.Decimal(5, 2)
-  qualityScore  Decimal  @db.Decimal(5, 2)
-  growthScore   Decimal  @db.Decimal(5, 2)
-  compositeScore Decimal @db.Decimal(5, 2)
+  asOfDate      DateTime 
+  valueScore    Decimal    // normalized 0-100
+  momentumScore Decimal  
+  qualityScore  Decimal  
+  growthScore   Decimal  
+  compositeScore Decimal 
 
   @@unique([stockId, asOfDate])
   @@index([stockId, asOfDate])
@@ -276,17 +258,13 @@ model FactorScore {
 // AI Model Portfolios & Recommendations
 // ------------------------------------------------------------
 
-enum StrategyStatus {
-  ACTIVE
-  DEPRECATED
-  BACKTESTING
-}
+
 
 model ModelPortfolio {
   id            String    @id @default(cuid())
   name          String    // e.g. "High Growth", "Value + Quality"
   description   String?
-  status        StrategyStatus @default(BACKTESTING)
+  status String @default("BACKTESTING")
 
   constituents  ModelPortfolioConstituent[]
   backtests     BacktestResult[]
@@ -305,8 +283,8 @@ model ModelPortfolioConstituent {
   stockId           String
   stock             Stock          @relation(fields: [stockId], references: [id])
 
-  targetWeightPct   Decimal        @db.Decimal(5, 2) // e.g. 8.50 = 8.5%
-  asOfDate          DateTime       @db.Date
+  targetWeightPct   Decimal         // e.g. 8.50 = 8.5%
+  asOfDate          DateTime       
 
   @@unique([modelPortfolioId, stockId, asOfDate])
 }
@@ -316,29 +294,20 @@ model BacktestResult {
   modelPortfolioId  String
   modelPortfolio    ModelPortfolio @relation(fields: [modelPortfolioId], references: [id])
 
-  periodStart       DateTime       @db.Date
-  periodEnd         DateTime       @db.Date
-  cagr              Decimal?       @db.Decimal(6, 2)
-  xirr              Decimal?       @db.Decimal(6, 2)
-  maxDrawdown       Decimal?       @db.Decimal(6, 2)
-  sharpeRatio       Decimal?       @db.Decimal(6, 2)
-  volatility        Decimal?       @db.Decimal(6, 2)
+  periodStart       DateTime       
+  periodEnd         DateTime       
+  cagr              Decimal?       
+  xirr              Decimal?       
+  maxDrawdown       Decimal?       
+  sharpeRatio       Decimal?       
+  volatility        Decimal?       
 
   generatedAt       DateTime       @default(now())
 }
 
-enum RecommendationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  EXPIRED
-}
 
-enum RecommendationAction {
-  BUY
-  SELL
-  REBALANCE
-}
+
+
 
 // The core "human-in-the-loop" object: AI proposes a change,
 // advisor/retail user must explicitly approve before any Transaction is created.
@@ -350,15 +319,15 @@ model Recommendation {
   modelPortfolioId  String?
   modelPortfolio    ModelPortfolio? @relation(fields: [modelPortfolioId], references: [id])
 
-  action            RecommendationAction
+  action String
   stockId           String?
-  suggestedQuantity Decimal?  @db.Decimal(18, 4)
-  suggestedWeightPct Decimal? @db.Decimal(5, 2)
+  suggestedQuantity Decimal?  
+  suggestedWeightPct Decimal? 
 
   rationaleText     String    // LLM-generated plain-English explanation
-  factorSnapshot    Json?     // frozen factor scores at time of recommendation
+  factorSnapshot    String?     // frozen factor scores at time of recommendation
 
-  status            RecommendationStatus @default(PENDING)
+  status String @default("PENDING")
   reviewedByUserId  String?
   reviewedAt        DateTime?
 
@@ -382,7 +351,7 @@ model AuditLog {
   action      String   // e.g. "RECOMMENDATION_APPROVED", "PORTFOLIO_CREATED"
   entityType  String
   entityId    String
-  metadata    Json?
+  metadata    String?
 
   createdAt   DateTime @default(now())
 

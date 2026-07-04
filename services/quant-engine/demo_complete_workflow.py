@@ -15,6 +15,13 @@ Run with: python demo_complete_workflow.py
 
 import sys
 import os
+
+# Configure stdout and stderr to handle UTF-8 print correctly on Windows
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 sys.path.insert(0, os.path.abspath('.'))
 
 import pandas as pd
@@ -170,7 +177,7 @@ def demo_step_3_score_stocks(stock_data, nifty_data, regime):
     print(f"\nScoring stocks (regime-adaptive: {regime.value})...")
     scored = compute_factor_scores(
         universe_df,
-        sector_neutral=True,
+        sector_neutral=False,
         price_history=price_history_df,
         index_prices=nifty_series,
         regime=regime,
@@ -204,20 +211,20 @@ def demo_step_4_construct_portfolio(scored):
     print_header("STEP 4: Construct Model Portfolio")
     
     print("Applying portfolio construction constraints...")
-    print("  • Max position weight: 8%")
-    print("  • Max sector weight: 25%")
-    print("  • Min positions: 5")
-    print("  • Max positions: 10")
-    print("  • Min composite score: 60")
+    print("  • Max position weight: 15%")
+    print("  • Max sector weight: 40%")
+    print("  • Min positions: 3")
+    print("  • Max positions: 8")
+    print("  • Min composite score: 45")
     
     from app.portfolio.construction import ConstructionConstraints
     
     constraints = ConstructionConstraints(
-        max_position_weight_pct=8.0,
-        max_sector_weight_pct=25.0,
-        min_positions=5,
-        max_positions=10,
-        min_composite_score=60.0,
+        max_position_weight_pct=15.0,
+        max_sector_weight_pct=40.0,
+        min_positions=3,
+        max_positions=8,
+        min_composite_score=45.0,
     )
     
     portfolio = construct_model_portfolio(scored, constraints)
@@ -286,7 +293,10 @@ def main():
     print("  4. Construct optimal portfolio with constraints")
     print("  5. Generate investment recommendations")
     
-    input("\nPress Enter to start (requires internet connection)...")
+    if sys.stdin.isatty():
+        input("\nPress Enter to start (requires internet connection)...")
+    else:
+        print("\nRunning in non-interactive mode. Proceeding with demo...")
     
     try:
         # Step 1: Download data

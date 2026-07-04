@@ -113,7 +113,11 @@ async function fetchRealNiftyPrices(): Promise<{ dates: string[]; closes: number
     
     const url = `https://query1.finance.yahoo.com/v7/finance/download/%5ENSEI?period1=${period1}&period2=${period2}&interval=1d&events=history`;
     
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
     if (!response.ok) throw new Error(`Yahoo Finance error: ${response.status}`);
     
     const csvText = await response.text();

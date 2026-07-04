@@ -286,16 +286,72 @@ def calculate_optimal_weights(
     return optimal_weights
 
 
+def count_transitions(series):
+    """Count actual transition changes in a regime series (ignores initial row)"""
+    if len(series) <= 1:
+        return 0
+    changes = (series.values[1:] != series.values[:-1]).sum()
+    return int(changes)
+
+
+def estimate_transition_lag(df):
+    """Calculate the average lag in trading days between a raw regime switch and smoothed confirmation"""
+    raw_changes = []
+    for idx in range(1, len(df)):
+        if df['raw_regime'].iloc[idx] != df['raw_regime'].iloc[idx - 1]:
+            raw_changes.append(idx)
+            
+    lags = []
+    for raw_idx in raw_changes:
+        target_regime = df['raw_regime'].iloc[raw_idx]
+        found_lag = None
+        # Scan forward up to 30 days to find when smoothed regime catches up
+        for offset in range(0, min(30, len(df) - raw_idx)):
+            if df['regime'].iloc[raw_idx + offset] == target_regime:
+                found_lag = offset
+                break
+        if found_lag is not None:
+            lags.append(found_lag)
+            
+    if len(lags) == 0:
+        return 0.0
+    return float(np.mean(lags))
+
+
 def generate_report(results: BacktestResults, output_path: Optional[str] = None):
     """Generate human-readable backtest report"""
     report = []
     report.append("=" * 70)
-    report.append("FUNDAI REGIME DETECTION BACKTEST REPORT")
+    report.append("FUNDAI REGIME DETECTION BACKTEST REPORT (v0.3.0)")
     report.append("=" * 70)
     report.append(f"\nBacktest Period: {results.start_date} to {results.end_date}")
     report.append(f"Total Trading Days: {results.total_days}")
-    report.append(f"Regime Transitions: {results.regime_transitions}")
+    report.append(f"Regime Transitions (Smoothed): {results.regime_transitions}")
     report.append(f"Transitions per Year: {results.summary_stats['transitions_per_year']:.1f}")
+    
+    # Check if upgrade metrics are present in summary_stats
+    if 'whole_raw_transitions' in results.summary_stats:
+        s = results.summary_stats
+        report.append("\n" + "=" * 70)
+        report.append("HYSTERESIS & TRANSITION ANALYSIS (RAW VS. SMOOTHED)")
+        report.append("=" * 70)
+        report.append(f"Whole Dataset:")
+        report.append(f"  • Raw Transitions      : {s['whole_raw_transitions']}")
+        report.append(f"  • Smoothed Transitions : {s['whole_smoothed_transitions']}")
+        report.append(f"  • Transition Reduction  : {s['whole_reduction_pct']:.1f}% fewer switches")
+        report.append(f"  • Average Hysteresis Lag: {s['whole_avg_lag_days']:.1f} trading days")
+        
+        report.append(f"\nIn-Sample Split (First 60% of history - Calibration):")
+        report.append(f"  • Raw Transitions      : {s['is_raw_transitions']}")
+        report.append(f"  • Smoothed Transitions : {s['is_smoothed_transitions']}")
+        report.append(f"  • Transition Reduction  : {s['is_reduction_pct']:.1f}% fewer switches")
+        report.append(f"  • Average Hysteresis Lag: {s['is_avg_lag_days']:.1f} trading days")
+        
+        report.append(f"\nOut-of-Sample Split (Last 40% of history - Testing):")
+        report.append(f"  • Raw Transitions      : {s['oos_raw_transitions']}")
+        report.append(f"  • Smoothed Transitions : {s['oos_smoothed_transitions']}")
+        report.append(f"  • Transition Reduction  : {s['oos_reduction_pct']:.1f}% fewer switches")
+        report.append(f"  • Average Hysteresis Lag: {s['oos_avg_lag_days']:.1f} trading days")
     
     report.append("\n" + "=" * 70)
     report.append("REGIME DISTRIBUTION")
@@ -343,7 +399,7 @@ def main():
     args = parser.parse_args()
     
     print("=" * 70)
-    print("FUNDAI REGIME DETECTION BACKTEST")
+    print("FUNDAI REGIME DETECTION BACKTEST (v0.3.0)")
     print("=" * 70)
     print(f"\nConfiguration:")
     print(f"  History: {args.years} years")
@@ -366,21 +422,58 @@ def main():
     # Simplified backtest (just regime detection validation)
     regime_history = backtest_regime_detection(nifty_data, window_days=252)
     
-    # Build simplified results
+    # Calculate transitions and lags
+    whole_raw_trans = count_transitions(regime_history['raw_regime'])
+    whole_smooth_trans = count_transitions(regime_history['regime'])
+    whole_reduction_pct = (100 * (whole_raw_trans - whole_smooth_trans) / whole_raw_trans) if whole_raw_trans > 0 else 0.0
+    whole_lag = estimate_transition_lag(regime_history)
+    
+    # Split dataset into 60% In-Sample (IS) and 40% Out-of-Sample (OOS)
+    N = len(regime_history)
+    is_len = int(N * 0.6)
+    is_history = regime_history.iloc[:is_len]
+    oos_history = regime_history.iloc[is_len:]
+    
+    is_raw_trans = count_transitions(is_history['raw_regime'])
+    is_smooth_trans = count_transitions(is_history['regime'])
+    is_reduction_pct = (100 * (is_raw_trans - is_smooth_trans) / is_raw_trans) if is_raw_trans > 0 else 0.0
+    is_lag = estimate_transition_lag(is_history)
+    
+    oos_raw_trans = count_transitions(oos_history['raw_regime'])
+    oos_smooth_trans = count_transitions(oos_history['regime'])
+    oos_reduction_pct = (100 * (oos_raw_trans - oos_smooth_trans) / oos_raw_trans) if oos_raw_trans > 0 else 0.0
+    oos_lag = estimate_transition_lag(oos_history)
+    
+    # Build results
     regime_counts = regime_history['regime'].value_counts().to_dict()
-    regime_transitions = (regime_history['regime'] != regime_history['regime'].shift(1)).sum()
     
     results = BacktestResults(
         start_date=str(nifty_data['date'].iloc[0]),
         end_date=str(nifty_data['date'].iloc[-1]),
         total_days=len(nifty_data),
         regime_counts=regime_counts,
-        regime_transitions=int(regime_transitions),
+        regime_transitions=whole_smooth_trans,
         regime_performance=[],  # Would need fundamental data
         optimal_weights={},  # Would need fundamental data
         summary_stats={
-            'transitions_per_year': regime_transitions / (len(nifty_data) / 252),
-            'avg_regime_duration_days': len(nifty_data) / len(regime_history.groupby('regime')),
+            'transitions_per_year': whole_smooth_trans / (len(nifty_data) / 252),
+            'avg_regime_duration_days': len(nifty_data) / len(regime_history.groupby('regime')) if len(regime_history.groupby('regime')) > 0 else 0.0,
+            
+            # Calibration metrics
+            'whole_raw_transitions': whole_raw_trans,
+            'whole_smoothed_transitions': whole_smooth_trans,
+            'whole_reduction_pct': whole_reduction_pct,
+            'whole_avg_lag_days': whole_lag,
+            
+            'is_raw_transitions': is_raw_trans,
+            'is_smoothed_transitions': is_smooth_trans,
+            'is_reduction_pct': is_reduction_pct,
+            'is_avg_lag_days': is_lag,
+            
+            'oos_raw_transitions': oos_raw_trans,
+            'oos_smoothed_transitions': oos_smooth_trans,
+            'oos_reduction_pct': oos_reduction_pct,
+            'oos_avg_lag_days': oos_lag,
         }
     )
     

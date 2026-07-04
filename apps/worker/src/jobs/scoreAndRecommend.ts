@@ -179,7 +179,11 @@ export async function runScoringAndRecommendations(): Promise<{
   for (const mp of modelPortfolios) {
     const constructed = await callQuantEngine<
       { stock_id: string; symbol: string; sector: string; composite_score: number; target_weight_pct: number }[]
-    >("/construct-portfolio", { scored_universe: scored });
+    >("/construct-portfolio", {
+      scored_universe: scored,
+      min_positions: 10,
+      min_composite_score: 40.0,
+    });
 
     await prisma.$transaction(
       constructed.map((c) =>
@@ -244,13 +248,13 @@ export async function runScoringAndRecommendations(): Promise<{
             suggestedWeightPct: targetPct,
             rationaleText: scoredStock?.rationale ?? "Rebalance to align with model portfolio target weight.",
             factorSnapshot: scoredStock
-              ? {
+              ? JSON.stringify({
                   value: scoredStock.value_score,
                   momentum: scoredStock.momentum_score,
                   quality: scoredStock.quality_score,
                   growth: scoredStock.growth_score,
                   composite: scoredStock.composite_score,
-                }
+                })
               : undefined,
             status: "PENDING",
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // recommendations expire after 7 days if not actioned
@@ -299,7 +303,11 @@ async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: numbe
     
     const url = `https://query1.finance.yahoo.com/v7/finance/download/%5ENSEI?period1=${period1}&period2=${period2}&interval=1d&events=history`;
     
-    const response = await yfinance(url);
+    const response = await yfinance(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
     
     if (!response.ok) {
       throw new Error(`Yahoo Finance returned ${response.status}`);

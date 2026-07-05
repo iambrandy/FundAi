@@ -91,6 +91,22 @@ router.get("/factor-performance", async (_req: AuthedRequest, res, next) => {
     // Calculate actual factor performance
     const factorPerformance = calculateFactorPerformance(historicalScores);
 
+    if (!factorPerformance) {
+      res.json({
+        period: "3M",
+        data_source: "insufficient_history",
+        factors: {
+          value: { return: 0.05, quintile_spread: 0.02, working: true },
+          momentum: { return: 0.08, quintile_spread: 0.04, working: true },
+          quality: { return: 0.06, quintile_spread: 0.03, working: true },
+          growth: { return: 0.04, quintile_spread: 0.02, working: true },
+          low_volatility: { return: 0.03, quintile_spread: 0.02, working: true },
+        },
+        note: "Insufficient stock count to compute historical statistics (< 10 stocks). Showing baseline heuristics.",
+      });
+      return;
+    }
+
     res.json({
       period: "3M",
       data_source: "actual_database",
@@ -190,10 +206,15 @@ async function fetchRealNiftyPrices(): Promise<{ dates: string[]; closes: number
       console.error("[market/regime] Failed loading stale cache fallback:", fallbackErr);
     }
 
-    console.log("[market/regime] Falling back to synthetic Nifty data");
+    const USE_REAL_DATA = process.env.USE_REAL_NIFTY_DATA !== "false";
+    if (USE_REAL_DATA) {
+      throw new Error("Aborting market regime detection: Real Nifty 50 data could not be fetched and no valid cache is available.");
+    }
+
+    console.log("[market/regime] Falling back to synthetic Nifty data (DEVELOPMENT ONLY)");
     const synthetic = generateSyntheticIndexPrices();
     
-    // Cache the fallback synthetic prices so we don't block subsequent requests
+    // Cache the fallback synthetic prices so we don't block subsequent requests in dev
     try {
       const cacheDir = path.dirname(NIFTY_CACHE_FILE);
       if (!fs.existsSync(cacheDir)) {
@@ -234,13 +255,7 @@ function calculateFactorPerformance(historicalScores: any[]): any {
   
   const stocks = Array.from(stockPerformance.values());
   if (stocks.length < 10) {
-    return {
-      value: { return: 0.05, quintile_spread: 0.02, working: true },
-      momentum: { return: 0.08, quintile_spread: 0.04, working: true },
-      quality: { return: 0.06, quintile_spread: 0.03, working: true },
-      growth: { return: 0.04, quintile_spread: 0.02, working: true },
-      low_volatility: { return: 0.03, quintile_spread: 0.02, working: true },
-    };
+    return null;
   }
   
   // Calculate quintile spreads per factor
@@ -320,5 +335,178 @@ function generateSyntheticIndexPrices(): { dates: string[]; closes: number[] } {
 
   return { dates, closes };
 }
+
+/**
+ * GET /api/market/screener
+ * 
+ * Query params:
+ *   - sector (string, optional)
+ *   - search (string, optional, matches symbol or name)
+ *   - minComposite / maxComposite (number)
+ *   - minValue / maxValue (number)
+ *   - minMomentum / maxMomentum (number)
+ *   - minQuality / maxQuality (number)
+ *   - minGrowth / maxGrowth (number)
+ *   - minLowVolatility / maxLowVolatility (number)
+ *   - sortBy (string: "symbol" | "name" | "sector" | "compositeScore" | "valueScore" | "momentumScore" | "qualityScore" | "growthScore" | "lowVolatilityScore")
+ *   - sortOrder ("asc" | "desc")
+ *   - limit (number, default 50)
+ *   - offset (number, default 0)
+ */
+router.get("/screener", async (req: AuthedRequest, res, next) => {
+  try {
+    const prisma = getSystemPrisma();
+    
+    // Parse query params
+    const sector = req.query.sector as string | undefined;
+    const search = req.query.search as string | undefined;
+    
+    const minComposite = req.query.minComposite ? Number(req.query.minComposite) : undefined;
+    const maxComposite = req.query.maxComposite ? Number(req.query.maxComposite) : undefined;
+    const minValue = req.query.minValue ? Number(req.query.minValue) : undefined;
+    const maxValue = req.query.maxValue ? Number(req.query.maxValue) : undefined;
+    const minMomentum = req.query.minMomentum ? Number(req.query.minMomentum) : undefined;
+    const maxMomentum = req.query.maxMomentum ? Number(req.query.maxMomentum) : undefined;
+    const minQuality = req.query.minQuality ? Number(req.query.minQuality) : undefined;
+    const maxQuality = req.query.maxQuality ? Number(req.query.maxQuality) : undefined;
+    const minGrowth = req.query.minGrowth ? Number(req.query.minGrowth) : undefined;
+    const maxGrowth = req.query.maxGrowth ? Number(req.query.maxGrowth) : undefined;
+    const minLowVolatility = req.query.minLowVolatility ? Number(req.query.minLowVolatility) : undefined;
+    const maxLowVolatility = req.query.maxLowVolatility ? Number(req.query.maxLowVolatility) : undefined;
+
+    const sortBy = (req.query.sortBy as string) || "compositeScore";
+    const sortOrder = (req.query.sortOrder as "asc" | "desc") || "desc";
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+
+    // Find the latest date in FactorScore table so we screen the most recent scores
+    const latestScoreRecord = await prisma.factorScore.findFirst({
+      orderBy: { asOfDate: "desc" },
+    });
+    
+    if (!latestScoreRecord) {
+      res.json({ stocks: [], total: 0, asOfDate: null });
+      return;
+    }
+    
+    const latestDate = latestScoreRecord.asOfDate;
+
+    // Construct Prisma where conditions for FactorScore table
+    const whereClause: any = {
+      asOfDate: latestDate,
+    };
+
+    // Filter by scores in FactorScore
+    if (minComposite !== undefined || maxComposite !== undefined) {
+      whereClause.compositeScore = { gte: minComposite, lte: maxComposite };
+    }
+    if (minValue !== undefined || maxValue !== undefined) {
+      whereClause.valueScore = { gte: minValue, lte: maxValue };
+    }
+    if (minMomentum !== undefined || maxMomentum !== undefined) {
+      whereClause.momentumScore = { gte: minMomentum, lte: maxMomentum };
+    }
+    if (minQuality !== undefined || maxQuality !== undefined) {
+      whereClause.qualityScore = { gte: minQuality, lte: maxQuality };
+    }
+    if (minGrowth !== undefined || maxGrowth !== undefined) {
+      whereClause.growthScore = { gte: minGrowth, lte: maxGrowth };
+    }
+    if (minLowVolatility !== undefined || maxLowVolatility !== undefined) {
+      whereClause.lowVolatilityScore = { gte: minLowVolatility, lte: maxLowVolatility };
+    }
+
+    // Filter by stock properties (sector, symbol/name search)
+    const stockConditions: any = {};
+    if (sector) {
+      stockConditions.sector = sector;
+    }
+    if (search) {
+      stockConditions.OR = [
+        { symbol: { contains: search } },
+        { name: { contains: search } },
+      ];
+    }
+
+    if (Object.keys(stockConditions).length > 0) {
+      whereClause.stock = stockConditions;
+    }
+
+    // Construct sorting
+    let orderByClause: any = {};
+    if (["compositeScore", "valueScore", "momentumScore", "qualityScore", "growthScore", "lowVolatilityScore"].includes(sortBy)) {
+      orderByClause[sortBy] = sortOrder;
+    } else if (sortBy === "symbol") {
+      orderByClause.stock = { symbol: sortOrder };
+    } else if (sortBy === "name") {
+      orderByClause.stock = { name: sortOrder };
+    } else if (sortBy === "sector") {
+      orderByClause.stock = { sector: sortOrder };
+    } else {
+      orderByClause.compositeScore = "desc";
+    }
+
+    // Execute queries (data + count for pagination)
+    const [scores, total] = await Promise.all([
+      prisma.factorScore.findMany({
+        where: whereClause,
+        include: {
+          stock: {
+            include: {
+              // Include latest fundamental snapshot
+              fundamentals: {
+                orderBy: { reportDate: "desc" },
+                take: 1,
+              },
+            },
+          },
+        },
+        orderBy: orderByClause,
+        take: limit,
+        skip: offset,
+      }),
+      prisma.factorScore.count({ where: whereClause }),
+    ]);
+
+    // Format output
+    const result = scores.map((score) => {
+      const latestFund = score.stock.fundamentals[0] || null;
+      return {
+        stock_id: score.stockId,
+        symbol: score.stock.symbol,
+        name: score.stock.name,
+        sector: score.stock.sector,
+        industry: score.stock.industry,
+        scores: {
+          value: Number(score.valueScore),
+          momentum: Number(score.momentumScore),
+          quality: Number(score.qualityScore),
+          growth: Number(score.growthScore),
+          lowVolatility: Number(score.lowVolatilityScore),
+          composite: Number(score.compositeScore),
+        },
+        fundamentals: latestFund ? {
+          peRatio: latestFund.peRatio ? Number(latestFund.peRatio) : null,
+          pbRatio: latestFund.pbRatio ? Number(latestFund.pbRatio) : null,
+          roe: latestFund.roe ? Number(latestFund.roe) : null,
+          debtToEquity: latestFund.debtToEquity ? Number(latestFund.debtToEquity) : null,
+          marketCap: latestFund.marketCap ? Number(latestFund.marketCap) : null,
+          dividendYield: latestFund.dividendYield ? Number(latestFund.dividendYield) : null,
+          reportDate: latestFund.reportDate.toISOString().split("T")[0],
+        } : null,
+      };
+    });
+
+    res.json({
+      stocks: result,
+      total,
+      limit,
+      offset,
+      asOfDate: latestDate.toISOString().split("T")[0],
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export { router as marketRouter };

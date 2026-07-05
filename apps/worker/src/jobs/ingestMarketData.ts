@@ -26,8 +26,12 @@ export async function runDailyIngestion(): Promise<{
 }> {
   const provider = getMarketDataProvider();
 
-  const healthy = await provider.healthCheck();
-  if (!healthy) {
+  const health = await provider.healthCheck();
+  if (!health.ok) {
+    console.error(
+      `[ingestion] Provider "${provider.name}" failed health check — aborting run.`,
+      { error: health.error, latencyMs: health.latencyMs }
+    );
     throw new Error(`Market data provider "${provider.name}" failed health check — aborting run.`);
   }
 

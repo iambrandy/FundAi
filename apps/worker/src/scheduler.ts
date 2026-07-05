@@ -1,21 +1,32 @@
 /**
  * Worker Scheduler
  * =================
- * Registers the daily pipeline as a repeatable BullMQ job:
- *   ingestMarketData -> scoreAndRecommend
- * Scheduled for after NSE close (15:30 IST) on weekdays. Uses BullMQ's
- * repeat.pattern (cron) rather than a naive setInterval so schedules
- * survive worker restarts and don't drift.
+ * Registers two repeatable BullMQ jobs:
+ *
+ *   1. daily-pipeline: ingestMarketData -> scoreAndRecommend
+ *      Runs Mon-Fri at 16:30 IST (after NSE close).
+ *
+ *   2. macro-refresh: refreshMacroEvents
+ *      Runs weekly, Sunday 18:00 IST (before Monday market open).
+ *      Seeds the macro event store and alerts on staleness.
+ *
+ * BullMQ repeat.pattern (cron) ensures schedules survive restarts
+ * and don't drift compared to a naive setInterval.
  */
 
 import { Queue, Worker, Job } from "bullmq";
 import { runDailyIngestion } from "./jobs/ingestMarketData";
 import { runScoringAndRecommendations } from "./jobs/scoreAndRecommend";
+import { runMacroEventsRefresh } from "./jobs/refreshMacroEvents";
 
 const connection = {
   host: process.env.REDIS_HOST ?? "localhost",
   port: Number(process.env.REDIS_PORT ?? 6379),
 };
+
+// ---------------------------------------------------------------------------
+// Queue 1: Daily pipeline
+// ---------------------------------------------------------------------------
 
 export const pipelineQueue = new Queue("daily-pipeline", { connection, skipVersionCheck: true });
 
@@ -60,3 +71,40 @@ pipelineWorker.on("failed", (job, err) => {
   // TODO: wire to alerting (e.g. Slack webhook) — a failed nightly pipeline
   // means stale recommendations go out to real advisors/clients next morning.
 });
+
+// ---------------------------------------------------------------------------
+// Queue 2: Weekly macro events refresh
+// ---------------------------------------------------------------------------
+
+export const macroRefreshQueue = new Queue("macro-refresh", { connection, skipVersionCheck: true });
+
+export async function scheduleMacroRefresh() {
+  await macroRefreshQueue.add(
+    "run-macro-refresh",
+    {},
+    {
+      repeat: { pattern: "0 18 * * 0", tz: "Asia/Kolkata" }, // 18:00 IST, Sunday — before Monday market open
+      jobId: "macro-refresh-recurring",
+    }
+  );
+  console.log("[scheduler] Macro events refresh scheduled for 18:00 IST, Sunday");
+}
+
+export const macroRefreshWorker = new Worker(
+  "macro-refresh",
+  async (job: Job) => {
+    console.log(`[worker] Starting macro events refresh (job ${job.id})`);
+    const result = await runMacroEventsRefresh();
+    return result;
+  },
+  { connection, concurrency: 1, skipVersionCheck: true }
+);
+
+macroRefreshWorker.on("completed", (job) => {
+  console.log(`[worker] Macro refresh job ${job.id} completed:`, job.returnvalue);
+});
+
+macroRefreshWorker.on("failed", (job, err) => {
+  console.error(`[worker] Macro refresh job ${job?.id} failed:`, err);
+});
+

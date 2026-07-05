@@ -239,16 +239,17 @@ model StockPrice {
 // Computed by the Python factor-scoring service, versioned by date
 // so we can track how a stock's score evolves and re-explain past recommendations.
 model FactorScore {
-  id            String   @id @default(cuid())
-  stockId       String
-  stock         Stock    @relation(fields: [stockId], references: [id])
+  id                 String   @id @default(cuid())
+  stockId            String
+  stock              Stock    @relation(fields: [stockId], references: [id])
 
-  asOfDate      DateTime 
-  valueScore    Decimal    // normalized 0-100
-  momentumScore Decimal  
-  qualityScore  Decimal  
-  growthScore   Decimal  
-  compositeScore Decimal 
+  asOfDate           DateTime 
+  valueScore         Decimal    // normalized 0-100
+  momentumScore      Decimal  
+  qualityScore       Decimal  
+  growthScore        Decimal  
+  lowVolatilityScore Decimal    @default(50.0)
+  compositeScore     Decimal 
 
   @@unique([stockId, asOfDate])
   @@index([stockId, asOfDate])
@@ -358,3 +359,18 @@ model AuditLog {
   @@index([userId])
   @@index([entityType, entityId])
 }
+
+model SystemEvent {
+  id          String   @id @default(cuid())
+  eventType   String   // "MACRO_STALENESS_ALERT" | "DATA_HEALTH_FAILURE" | "PIPELINE_ABORTED"
+  severity    String   // "INFO" | "WARN" | "ERROR"
+  entityType  String?
+  entityId    String?
+  message     String
+  metadata    String?  // JSON blob
+  createdAt   DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([severity, createdAt])
+}
+

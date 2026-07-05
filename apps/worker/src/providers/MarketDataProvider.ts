@@ -41,6 +41,9 @@ export interface MarketDataProvider {
   /** Latest available fundamental snapshot for a symbol. */
   getFundamentals(symbol: string): Promise<FundamentalSnapshot | null>;
 
-  /** Cheap way to check the provider is reachable/authenticated before a full run. */
-  healthCheck(): Promise<boolean>;
+  /** Cheap way to check the provider is reachable/authenticated before a full run.
+   * Returns a structured result so callers can log latency and error details,
+   * not just a boolean that gives no diagnostic information on failure.
+   */
+  healthCheck(): Promise<{ ok: boolean; latencyMs: number; error: string | null }>;
 }

@@ -94,36 +94,55 @@ REGIME_WEIGHTS = {
 }
 
 
-def get_geopolitical_macro_context(date_val) -> str:
+def _hardcoded_fallback(date_val) -> str:
     """
-    Returns rule-based historical and upcoming macro event overlays in Indian markets
-    to add geopolitical context to the technical indicators.
+    Original heuristic macro context — preserved as fallback for when
+    MacroEventStore is unavailable (dev without a seeded DB, first run).
+    Not deleted, just demoted to private.
     """
     try:
         dt = pd.to_datetime(date_val)
     except Exception:
         return "Standard policy cycle. Local equity trends driven by corporate earnings and global capital flows."
-        
+
     year = dt.year
     month = dt.month
     day = dt.day
-    
-    # Check Union Budget dates (e.g. Feb 1 every year, or special mid-year budgets like July 2024 post-election)
+
     if month == 2 and day <= 7:
         return f"Union Budget Announcement window (Feb 1, {year}). Expect heightened policy focus and public spending revisions."
     if year == 2024 and month == 7 and 20 <= day <= 27:
         return "Post-Election Union Budget Presentation (July 23, 2024). Major capital gains tax and asset class adjustments."
-        
-    # Check General Election windows (e.g. Apr-Jun 2024)
     if year == 2024 and ((month == 4 and day >= 15) or month == 5 or (month == 6 and day <= 10)):
         return "Indian General Elections 2024. Elevated political risk and policy continuity speculation leading to structural volatility."
-        
-    # RBI MPC (Monetary Policy Committee) regular meeting windows (approx. early/mid of Feb, Apr, Jun, Aug, Oct, Dec)
     if month in [2, 4, 6, 8, 10, 12] and 3 <= day <= 10:
         return f"RBI Monetary Policy Committee (MPC) rate review week. Interest rate stance and domestic inflation guidance updates."
-        
-    # Default message indicating standard policy environment
     return "Standard policy cycle. Local equity trends driven by corporate earnings and global capital flows."
+
+
+def get_geopolitical_macro_context(date_val) -> str:
+    """
+    Returns macro event context for a given date.
+
+    Delegates to MacroEventStore (SQLite-backed, manually seeded) for
+    accurate event data. Falls back to _hardcoded_fallback() when the
+    store is unavailable — ensuring the function never raises in any
+    environment (dev, CI, production without a seeded DB).
+
+    Called once per scoring batch inside detect_market_regime(); the
+    result is attached to run_metadata and frozen into every
+    recommendation's factorSnapshot at generation time.
+    """
+    try:
+        from app.data.macro_events import MacroEventStore
+        store = MacroEventStore()
+        return store.get_context_for_date(date_val)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "[macro_context] MacroEventStore unavailable (%s), using hardcoded fallback.", e
+        )
+        return _hardcoded_fallback(date_val)
 
 
 def detect_market_regime(
@@ -170,6 +189,9 @@ def detect_market_regime(
     df['realized_vol_20d'] = df['return'].rolling(20).std() * np.sqrt(252)
     
     # Rolling percentile calculation
+    # TRAILING-WINDOW GUARANTEE: history = vols[:idx+1] includes only rows
+    # 0..idx (inclusive). Row idx+1 and beyond are never accessed.
+    # Mechanically verified by test_lookahead_bias.py::test_rolling_stats_no_lookahead_full_pipeline.
     vols = df['realized_vol_20d'].fillna(0).values
     vol_percentiles = []
     for idx in range(len(vols)):
@@ -205,6 +227,10 @@ def detect_market_regime(
     df['raw_regime'] = df.apply(classify_row, axis=1)
     
     # --- Hysteresis / Transition smoothing filter ---
+    # TRAILING-WINDOW GUARANTEE: slice raw_values[start_idx:idx+1] is a strict
+    # trailing window. start_idx = max(0, idx - window + 1), and idx+1 in
+    # Python slice notation is exclusive — day idx never touches day idx+1.
+    # Mechanically verified by test_lookahead_bias.py::test_smoothed_regime_is_trailing_only.
     if cfg.enable_smoothing:
         smoothed = []
         raw_values = df['raw_regime'].values

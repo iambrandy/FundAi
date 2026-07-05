@@ -117,3 +117,10 @@ export async function getMarketRegime() {
 export async function getFactorPerformance() {
   return request("/market/factor-performance");
 }
+
+export async function getScreener(params = {}) {
+  const query = new URLSearchParams(
+    Object.entries(params).filter(([_, v]) => v !== undefined && v !== "")
+  ).toString();
+  return request(`/market/screener${query ? `?${query}` : ""}`);
+}

@@ -41,24 +41,47 @@ export function getTenantPrisma(userId: string, role: "ADVISOR" | "RETAIL" | "AD
     query: {
       client: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async $allOperations({ args, query }: { args: any; query: (args: any) => Promise<any> }) {
-          args.where =
-            role === "ADVISOR"
-              ? { ...args.where, advisorId: userId }
-              : { ...args.where, retailUserId: userId };
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation === "create" || operation === "createMany") {
+            if (operation === "create") {
+              args.data = {
+                ...args.data,
+                ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId })
+              };
+            } else if (operation === "createMany") {
+              if (Array.isArray(args.data)) {
+                args.data = args.data.map((item: any) => ({
+                  ...item,
+                  ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId })
+                }));
+              } else {
+                args.data = {
+                  ...args.data,
+                  ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId })
+                };
+              }
+            }
+          } else {
+            args.where =
+              role === "ADVISOR"
+                ? { ...args.where, advisorId: userId }
+                : { ...args.where, retailUserId: userId };
+          }
           return query(args);
         },
       },
       portfolio: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async $allOperations({ args, query }: { args: any; query: (args: any) => Promise<any> }) {
-          args.where = {
-            ...args.where,
-            client:
-              role === "ADVISOR"
-                ? { advisorId: userId }
-                : { retailUserId: userId },
-          };
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              client:
+                role === "ADVISOR"
+                  ? { advisorId: userId }
+                  : { retailUserId: userId },
+            };
+          }
           return query(args);
         },
       },

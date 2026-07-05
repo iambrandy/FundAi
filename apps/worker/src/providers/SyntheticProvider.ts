@@ -24,8 +24,8 @@ function hashSymbol(symbol: string): number {
 export class SyntheticProvider implements MarketDataProvider {
   readonly name = "synthetic";
 
-  async healthCheck(): Promise<boolean> {
-    return true;
+  async healthCheck(): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
+    return { ok: true, latencyMs: 0, error: null };
   }
 
   async getDailyBars(symbol: string, from: string, to: string): Promise<OhlcvBar[]> {

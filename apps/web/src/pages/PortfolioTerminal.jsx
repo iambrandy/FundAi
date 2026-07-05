@@ -116,12 +116,26 @@ function useTapeScroll() {
   return ref;
 }
 
+const mockScreenerStocks = [
+  { stock_id: "s1", symbol: "RELIANCE", name: "Reliance Industries Ltd.", sector: "Energy & Utilities", industry: "Oil & Gas", scores: { value: 74, momentum: 89, quality: 81, growth: 67, lowVolatility: 65, composite: 84.5 }, fundamentals: { peRatio: 26.4, pbRatio: 2.1, roe: 8.5, debtToEquity: 0.38, marketCap: 1.6e13, dividendYield: 0.6 } },
+  { stock_id: "s2", symbol: "HDFCBANK", name: "HDFC Bank Ltd.", sector: "Financial Services", industry: "Banking", scores: { value: 68, momentum: 78, quality: 88, growth: 76, lowVolatility: 74, composite: 79.8 }, fundamentals: { peRatio: 18.2, pbRatio: 2.6, roe: 14.5, debtToEquity: 0.95, marketCap: 1.2e13, dividendYield: 1.1 } },
+  { stock_id: "s3", symbol: "INFY", name: "Infosys Ltd.", sector: "Technology", industry: "IT Services", scores: { value: 62, momentum: 86, quality: 92, growth: 70, lowVolatility: 78, composite: 81.2 }, fundamentals: { peRatio: 24.5, pbRatio: 7.2, roe: 28.5, debtToEquity: 0.05, marketCap: 6.2e12, dividendYield: 2.3 } },
+  { stock_id: "s4", symbol: "TCS", name: "Tata Consultancy Services Ltd.", sector: "Technology", industry: "IT Services", scores: { value: 58, momentum: 81, quality: 94, growth: 68, lowVolatility: 82, composite: 76.5 }, fundamentals: { peRatio: 28.1, pbRatio: 9.6, roe: 38.2, debtToEquity: 0.02, marketCap: 1.3e13, dividendYield: 2.9 } },
+  { stock_id: "s5", symbol: "ICICIBANK", name: "ICICI Bank Ltd.", sector: "Financial Services", industry: "Banking", scores: { value: 71, momentum: 84, quality: 86, growth: 79, lowVolatility: 70, composite: 82.1 }, fundamentals: { peRatio: 17.5, pbRatio: 3.1, roe: 16.2, debtToEquity: 0.88, marketCap: 8.1e12, dividendYield: 0.9 } },
+  { stock_id: "s6", symbol: "TITAN", name: "Titan Company Ltd.", sector: "Consumer Cyclical", industry: "Luxury Goods", scores: { value: 45, momentum: 68, quality: 85, growth: 74, lowVolatility: 58, composite: 68.3 }, fundamentals: { peRatio: 65.4, pbRatio: 15.2, roe: 24.3, debtToEquity: 0.22, marketCap: 3.1e12, dividendYield: 0.3 } },
+  { stock_id: "s7", symbol: "BAJFINANCE", name: "Bajaj Finance Ltd.", sector: "Financial Services", industry: "NBFC", scores: { value: 64, momentum: 94, quality: 89, growth: 85, lowVolatility: 62, composite: 88.6 }, fundamentals: { peRatio: 32.5, pbRatio: 6.8, roe: 21.8, debtToEquity: 1.25, marketCap: 4.2e12, dividendYield: 0.5 } },
+  { stock_id: "s8", symbol: "SUNPHARMA", name: "Sun Pharmaceutical Industries Ltd.", sector: "Healthcare", industry: "Pharmaceuticals", scores: { value: 59, momentum: 82, quality: 80, growth: 72, lowVolatility: 76, composite: 77.4 }, fundamentals: { peRatio: 34.2, pbRatio: 3.8, roe: 11.2, debtToEquity: 0.12, marketCap: 3.5e12, dividendYield: 0.8 } },
+  { stock_id: "s9", symbol: "TATAMOTORS", name: "Tata Motors Ltd.", sector: "Consumer Cyclical", industry: "Auto Manufacturers", scores: { value: 78, momentum: 90, quality: 78, growth: 81, lowVolatility: 54, composite: 83.2 }, fundamentals: { peRatio: 12.8, pbRatio: 2.9, roe: 22.4, debtToEquity: 1.55, marketCap: 3.8e12, dividendYield: 0.4 } },
+  { stock_id: "s10", symbol: "HINDUNILVR", name: "Hindustan Unilever Ltd.", sector: "Consumer Defensive", industry: "Personal Care", scores: { value: 50, momentum: 70, quality: 96, growth: 62, lowVolatility: 85, composite: 71.8 }, fundamentals: { peRatio: 52.4, pbRatio: 11.8, roe: 86.4, debtToEquity: 0.01, marketCap: 5.6e12, dividendYield: 1.8 } }
+];
+
 export default function FundAITerminal({ user, onLogout }) {
-  const [isDemoMode, setIsDemoMode] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   const [clientsList, setClientsList] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [selectedPortfolio, setSelectedPortfolio] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStock, setSelectedStock] = useState(null);
   
   // Loaded dataset
   const [recs, setRecs] = useState(mockRecommendations);
@@ -131,8 +145,98 @@ export default function FundAITerminal({ user, onLogout }) {
   
   const [marketRegime, setMarketRegime] = useState({
     regime: "BULL",
-    interpretation: "Strong index momentum with price trading above the 200-day SMA. High-conviction focus placed on growth and momentum factors."
+    interpretation: "Index trading above the 200-day Simple Moving Average (SMA) with positive momentum. Standard regime weight allocation shifts focus towards growth and momentum components, following strict trailing-window validation."
   });
+
+  // Screener state variables
+  const [activeTab, setActiveTab] = useState("holdings");
+  const [screenerSearch, setScreenerSearch] = useState("");
+  const [screenerSector, setScreenerSector] = useState("");
+  const [screenerSortBy, setScreenerSortBy] = useState("compositeScore");
+  const [screenerSortOrder, setScreenerSortOrder] = useState("desc");
+  const [screenerResults, setScreenerResults] = useState(mockScreenerStocks);
+  const [screenerTotal, setScreenerTotal] = useState(mockScreenerStocks.length);
+  const [screenerLoading, setScreenerLoading] = useState(false);
+
+  // Fetch/Filter screener stocks
+  useEffect(() => {
+    if (isDemoMode) {
+      // Filter mock stocks client-side
+      let filtered = [...mockScreenerStocks];
+      if (screenerSearch) {
+        const query = screenerSearch.toLowerCase();
+        filtered = filtered.filter(s => s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query));
+      }
+      if (screenerSector) {
+        filtered = filtered.filter(s => s.sector === screenerSector);
+      }
+      // Sorting
+      filtered.sort((a, b) => {
+        let valA, valB;
+        if (screenerSortBy === "symbol") {
+          valA = a.symbol;
+          valB = b.symbol;
+        } else if (screenerSortBy === "name") {
+          valA = a.name;
+          valB = b.name;
+        } else if (screenerSortBy === "sector") {
+          valA = a.sector;
+          valB = b.sector;
+        } else {
+          // map score keys
+          const keyMap = {
+            compositeScore: "composite",
+            valueScore: "value",
+            momentumScore: "momentum",
+            qualityScore: "quality",
+            growthScore: "growth",
+            lowVolatilityScore: "lowVolatility"
+          };
+          const key = keyMap[screenerSortBy] || "composite";
+          valA = a.scores[key];
+          valB = b.scores[key];
+        }
+
+        if (typeof valA === "string") {
+          return screenerSortOrder === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        } else {
+          return screenerSortOrder === "asc" ? valA - valB : valB - valA;
+        }
+      });
+
+      setScreenerResults(filtered);
+      setScreenerTotal(filtered.length);
+      return;
+    }
+
+    // Fetch from real API in database mode
+    const delayDebounceFn = setTimeout(async () => {
+      setScreenerLoading(true);
+      try {
+        const params = {
+          search: screenerSearch,
+          sector: screenerSector,
+          sortBy: screenerSortBy,
+          sortOrder: screenerSortOrder,
+          limit: 50,
+          offset: 0
+        };
+        // Fetch from API
+        const { getScreener } = await import("../api.js");
+        const res = await getScreener(params);
+        if (res && res.stocks) {
+          setScreenerResults(res.stocks);
+          setScreenerTotal(res.total);
+        }
+      } catch (err) {
+        console.error("Failed to load screener data from API", err);
+      } finally {
+        setScreenerLoading(false);
+      }
+    }, 300); // 300ms debounce for search inputs
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [screenerSearch, screenerSector, screenerSortBy, screenerSortOrder, isDemoMode]);
 
   const getRegimeStyles = (regime) => {
     switch (regime) {
@@ -194,6 +298,7 @@ export default function FundAITerminal({ user, onLogout }) {
   }, []);
 
   useEffect(() => {
+    setSelectedStock(null);
     if (isDemoMode) {
       setRecs(mockRecommendations);
       setHoldings(mockHoldings);
@@ -293,6 +398,18 @@ export default function FundAITerminal({ user, onLogout }) {
       setLoading(false);
     }
   }
+
+  const handleCopyWhatsApp = (rec) => {
+    const clientName = !isDemoMode && selectedClient ? selectedClient.displayName : "Valued Client";
+    const text = `*FundAI Portfolio Proposal for ${clientName}*\n\n` +
+      `*Action*: ${rec.action} ${rec.symbol}\n` +
+      `*Rebalance Drift*: ${rec.weightDrift >= 0 ? "+" : ""}${rec.weightDrift.toFixed(1)}%\n` +
+      `*Rationale*: ${rec.rationale}\n\n` +
+      `_This is a quantitative calculation generated for client review. Final execution requires your explicit consent._`;
+    
+    navigator.clipboard.writeText(text);
+    showToast(`WhatsApp draft copied to clipboard! Ready to paste.`);
+  };
 
   function showToast(msg) {
     setToast(msg);
@@ -786,11 +903,11 @@ export default function FundAITerminal({ user, onLogout }) {
       {/* 2. Sleek Menu Bar */}
       <div className="nav-bar">
         <div className="brand-container">
-          <div className="brand-icon">
+          <div className="brand-icon" style={{ background: "var(--neon-green)" }}>
             <Cpu size={14} color="#060913" />
           </div>
-          <span className="brand-title">FundAI Gateway</span>
-          <span className="brand-badge">PRO v0.2</span>
+          <span className="brand-title">FundAI Partner Portal</span>
+          <span className="brand-badge" style={{ background: "rgba(62,207,142,0.1)", color: "var(--neon-green)" }}>RIA Sentinel v0.2</span>
         </div>
 
         <div className="auth-widget">
@@ -826,93 +943,299 @@ export default function FundAITerminal({ user, onLogout }) {
           
           {/* Portfolio Performance & Holdings Table */}
           <div className="glass-panel">
-            <div className="panel-header">
-              <h3 className="panel-title">
-                <div className="pulse-dot" /> Client Portfolio Holdings
-              </h3>
+            <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <button 
+                  className={`mode-btn ${activeTab === "holdings" ? "active" : ""}`}
+                  style={{ fontSize: "13px", padding: "4px 12px" }}
+                  onClick={() => setActiveTab("holdings")}
+                >
+                  Holdings Dashboard
+                </button>
+                <button 
+                  className={`mode-btn ${activeTab === "screener" ? "active" : ""}`}
+                  style={{ fontSize: "13px", padding: "4px 12px" }}
+                  onClick={() => setActiveTab("screener")}
+                >
+                  Stock Screener
+                </button>
+              </div>
               <span className="mono" style={{ fontSize: 11, color: "#8c9bb0" }}>
-                {!isDemoMode && selectedClient ? `${selectedClient.displayName}` : "ADAPTIVE_ALPHA_INDEX"}
+                {activeTab === "holdings" 
+                  ? (!isDemoMode && selectedClient ? `${selectedClient.displayName}` : "ADAPTIVE_ALPHA_INDEX")
+                  : `SCREENING_${screenerTotal}_STOCKS`}
               </span>
             </div>
 
-            {/* Premium Metric Bar */}
-            <div className="metrics-banner">
-              <div className="metric-card">
-                <div className="metric-label">NAV Valuation</div>
-                <div className="metric-val mono" style={{ color: "var(--neon-cyan)" }}>
-                  ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                </div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Cost Basis</div>
-                <div className="metric-val mono">
-                  ₹{totalCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                </div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Cumulative P&amp;L</div>
-                <div className="metric-val mono" style={{ color: totalPnl >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
-                  ₹{totalPnl.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                </div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Relative Return</div>
-                <div className="metric-val mono" style={{ color: totalGainPct >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
-                  {totalGainPct >= 0 ? "+" : ""}{totalGainPct.toFixed(2)}%
-                </div>
-              </div>
-            </div>
-
-            {/* Holdings Table */}
-            {holdings.length === 0 ? (
-              <div className="empty-state">
-                <ShieldAlert size={24} style={{ color: "var(--neon-amber)", marginBottom: 12 }} />
-                <p style={{ fontSize: 13, color: "#8c9bb0" }}>No linked holdings found in this active database.</p>
-                {user.role === "ADVISOR" && (
-                  <button 
-                    className="action-button approve" 
-                    style={{ margin: "16px auto 0" }}
-                    onClick={handleCreateMockAsset}
-                    disabled={loading}
-                  >
-                    Generate Sandbox Assets
-                  </button>
+            {activeTab === "holdings" && (
+              <>
+                {/* Advisor client account selector */}
+                {user.role === "ADVISOR" && !isDemoMode && clientsList.length > 0 && (
+                  <div style={{ padding: "16px 16px 0", marginBottom: "8px" }}>
+                    <label style={{ fontSize: "11px", color: "#8c9bb0", display: "block", marginBottom: "6px", fontWeight: "bold" }} className="mono">
+                      CLIENT ACCOUNT ACCOUNT:
+                    </label>
+                    <select
+                      className="form-input"
+                      style={{ width: "100%", height: "32px", fontSize: "13px", padding: "0 8px", background: "rgba(14,22,45,0.7)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", borderRadius: "6px" }}
+                      value={selectedClient ? selectedClient.id : ""}
+                      onChange={(e) => {
+                        const client = clientsList.find(c => c.id === e.target.value);
+                        setSelectedClient(client || null);
+                        setSelectedStock(null);
+                        if (client && client.portfolios && client.portfolios.length > 0) {
+                          loadPortfolioDetails(client.portfolios[0].id);
+                        } else {
+                          setHoldings([]);
+                          setRecs([]);
+                        }
+                      }}
+                    >
+                      {clientsList.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.displayName} ({c.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Ticker &amp; Sector</th>
-                      <th className="mono" style={{ textAlign: "right" }}>Quantity</th>
-                      <th className="mono" style={{ textAlign: "right" }}>Avg Price</th>
-                      <th className="mono" style={{ textAlign: "right" }}>Last Traded</th>
-                      <th className="mono" style={{ textAlign: "right" }}>Allocation</th>
-                      <th className="mono" style={{ textAlign: "right" }}>Performance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holdings.map((h, i) => {
-                      const returnPct = ((h.ltp - h.avgPrice) / h.avgPrice) * 100;
-                      return (
-                        <tr key={h.symbol + i}>
-                          <td>
-                            <span className="ticker-symbol">{h.symbol}</span>
-                            <span className="sector-badge">{h.sector}</span>
-                          </td>
-                          <td className="mono" style={{ textAlign: "right" }}>{h.qty}</td>
-                          <td className="mono" style={{ textAlign: "right" }}>₹{h.avgPrice.toFixed(1)}</td>
-                          <td className="mono" style={{ textAlign: "right" }}>₹{h.ltp.toFixed(1)}</td>
-                          <td className="mono" style={{ textAlign: "right" }}>{h.weight.toFixed(1)}%</td>
-                          <td className={`mono ${returnPct >= 0 ? "val-gain" : "val-loss"}`} style={{ textAlign: "right" }}>
-                            {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(1)}%
-                          </td>
+
+                {/* Premium Metric Bar */}
+                <div className="metrics-banner">
+                  <div className="metric-card">
+                    <div className="metric-label">NAV Valuation</div>
+                    <div className="metric-val mono" style={{ color: "var(--neon-cyan)" }}>
+                      ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div className="metric-card">
+                    <div className="metric-label">Cost Basis</div>
+                    <div className="metric-val mono">
+                      ₹{totalCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div className="metric-card">
+                    <div className="metric-label">Cumulative P&amp;L</div>
+                    <div className="metric-val mono" style={{ color: totalPnl >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
+                      ₹{totalPnl.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <div className="metric-card">
+                    <div className="metric-label">Relative Return</div>
+                    <div className="metric-val mono" style={{ color: totalGainPct >= 0 ? "var(--neon-green)" : "var(--neon-rose)" }}>
+                      {totalGainPct >= 0 ? "+" : ""}{totalGainPct.toFixed(2)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Holdings Table */}
+                {holdings.length === 0 ? (
+                  <div className="empty-state">
+                    <ShieldAlert size={24} style={{ color: "var(--neon-amber)", marginBottom: 12 }} />
+                    <p style={{ fontSize: 13, color: "#8c9bb0" }}>No linked holdings found in this active database.</p>
+                    {user.role === "ADVISOR" && (
+                      <button 
+                        className="action-button approve" 
+                        style={{ margin: "16px auto 0" }}
+                        onClick={handleCreateMockAsset}
+                        disabled={loading}
+                      >
+                        Generate Sandbox Assets
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Ticker &amp; Sector</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Quantity</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Avg Price</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Last Traded</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Allocation</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Performance</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {holdings.map((h, i) => {
+                          const returnPct = ((h.ltp - h.avgPrice) / h.avgPrice) * 100;
+                          return (
+                            <tr 
+                              key={h.symbol + i} 
+                              style={{ cursor: "pointer" }}
+                              onClick={() => {
+                                const fullStock = mockScreenerStocks.find(s => s.symbol === h.symbol) || {
+                                  stock_id: h.symbol,
+                                  symbol: h.symbol,
+                                  name: h.symbol + " Corp",
+                                  sector: h.sector,
+                                  scores: { value: 50, momentum: 50, quality: 50, growth: 50, lowVolatility: 50, composite: 50 },
+                                  fundamentals: null
+                                };
+                                setSelectedStock(fullStock);
+                              }}
+                            >
+                              <td>
+                                <span className="ticker-symbol">{h.symbol}</span>
+                                <span className="sector-badge">{h.sector}</span>
+                              </td>
+                              <td className="mono" style={{ textAlign: "right" }}>{h.qty}</td>
+                              <td className="mono" style={{ textAlign: "right" }}>₹{h.avgPrice.toFixed(1)}</td>
+                              <td className="mono" style={{ textAlign: "right" }}>₹{h.ltp.toFixed(1)}</td>
+                              <td className="mono" style={{ textAlign: "right" }}>{h.weight.toFixed(1)}%</td>
+                              <td className={`mono ${returnPct >= 0 ? "val-gain" : "val-loss"}`} style={{ textAlign: "right" }}>
+                                {returnPct >= 0 ? "+" : ""}{returnPct.toFixed(1)}%
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === "screener" && (
+              <div style={{ padding: "16px" }}>
+                {/* Screener Query Bar */}
+                <div style={{ 
+                  display: "flex", 
+                  gap: "12px", 
+                  flexWrap: "wrap", 
+                  marginBottom: "16px",
+                  padding: "12px",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  borderRadius: "8px",
+                  border: "1px solid rgba(255, 255, 255, 0.05)"
+                }}>
+                  {/* Search input */}
+                  <div style={{ flex: 1, minWidth: "180px", position: "relative" }}>
+                    <Search size={14} style={{ position: "absolute", left: "10px", top: "10px", color: "#8c9bb0" }} />
+                    <input 
+                      type="text" 
+                      placeholder="Search symbol or name..." 
+                      className="form-input" 
+                      style={{ paddingLeft: "32px", width: "100%", height: "32px", fontSize: "12px", boxSizing: "border-box" }}
+                      value={screenerSearch}
+                      onChange={(e) => setScreenerSearch(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Sector Dropdown */}
+                  <div style={{ minWidth: "150px" }}>
+                    <select 
+                      className="form-input" 
+                      style={{ height: "32px", fontSize: "12px", padding: "0 8px", width: "100%" }}
+                      value={screenerSector}
+                      onChange={(e) => setScreenerSector(e.target.value)}
+                    >
+                      <option value="">All Sectors</option>
+                      <option value="Technology">Technology</option>
+                      <option value="Financial Services">Financial Services</option>
+                      <option value="Energy & Utilities">Energy & Utilities</option>
+                      <option value="Consumer Cyclical">Consumer Cyclical</option>
+                      <option value="Consumer Defensive">Consumer Defensive</option>
+                      <option value="Healthcare">Healthcare</option>
+                    </select>
+                  </div>
+
+                  {/* Sort By Dropdown */}
+                  <div style={{ minWidth: "150px" }}>
+                    <select 
+                      className="form-input" 
+                      style={{ height: "32px", fontSize: "12px", padding: "0 8px", width: "100%" }}
+                      value={screenerSortBy}
+                      onChange={(e) => setScreenerSortBy(e.target.value)}
+                    >
+                      <option value="compositeScore">Sort: Composite Score</option>
+                      <option value="valueScore">Sort: Value Score</option>
+                      <option value="momentumScore">Sort: Momentum Score</option>
+                      <option value="qualityScore">Sort: Quality Score</option>
+                      <option value="growthScore">Sort: Growth Score</option>
+                      <option value="lowVolatilityScore">Sort: Low Volatility Score</option>
+                      <option value="symbol">Sort: Ticker Symbol</option>
+                    </select>
+                  </div>
+
+                  {/* Sort Order Switcher */}
+                  <button 
+                    className="mode-btn"
+                    style={{ height: "32px", padding: "0 12px", fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}
+                    onClick={() => setScreenerSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+                  >
+                    {screenerSortOrder === "desc" ? "▲ Descending" : "▼ Ascending"}
+                  </button>
+                </div>
+
+                {/* Screener Results Table */}
+                {screenerLoading ? (
+                  <div className="empty-state" style={{ height: "180px" }}>
+                    <div className="pulse-dot" style={{ width: "12px", height: "12px" }} />
+                    <p style={{ fontSize: "13px", color: "#8c9bb0", marginTop: "12px" }}>Querying factor models...</p>
+                  </div>
+                ) : screenerResults.length === 0 ? (
+                  <div className="empty-state" style={{ height: "180px" }}>
+                    <Info size={24} style={{ color: "var(--neon-amber)", marginBottom: "12px" }} />
+                    <p style={{ fontSize: "13px", color: "#8c9bb0" }}>No stocks match your query limits.</p>
+                  </div>
+                ) : (
+                  <div className="table-wrap" style={{ maxHeight: "400px", overflowY: "auto" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Ticker &amp; Name</th>
+                          <th>Sector</th>
+                          <th className="mono" style={{ textAlign: "right" }}>Composite</th>
+                          <th className="mono" style={{ textAlign: "right" }}>VAL</th>
+                          <th className="mono" style={{ textAlign: "right" }}>MOM</th>
+                          <th className="mono" style={{ textAlign: "right" }}>QLT</th>
+                          <th className="mono" style={{ textAlign: "right" }}>GRW</th>
+                          <th className="mono" style={{ textAlign: "right" }}>VOL</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {screenerResults.map((s, idx) => (
+                          <tr 
+                            key={s.symbol + idx} 
+                            style={{ transition: "background 0.2s", cursor: "pointer" }} 
+                            className="screener-row"
+                            onClick={() => setSelectedStock(s)}
+                          >
+                            <td>
+                              <div style={{ display: "flex", flexDirection: "column" }}>
+                                <span className="ticker-symbol" style={{ fontWeight: "bold" }}>{s.symbol}</span>
+                                <span style={{ fontSize: "10px", color: "#8c9bb0" }}>{s.name}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="sector-badge">{s.sector}</span>
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", fontWeight: "bold", color: "var(--neon-cyan)" }}>
+                              {s.scores.composite.toFixed(1)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", color: s.scores.value >= 70 ? "var(--neon-green)" : s.scores.value <= 30 ? "var(--neon-rose)" : "#fff" }}>
+                              {s.scores.value.toFixed(0)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", color: s.scores.momentum >= 70 ? "var(--neon-green)" : s.scores.momentum <= 30 ? "var(--neon-rose)" : "#fff" }}>
+                              {s.scores.momentum.toFixed(0)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", color: s.scores.quality >= 70 ? "var(--neon-green)" : s.scores.quality <= 30 ? "var(--neon-rose)" : "#fff" }}>
+                              {s.scores.quality.toFixed(0)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", color: s.scores.growth >= 70 ? "var(--neon-green)" : s.scores.growth <= 30 ? "var(--neon-rose)" : "#fff" }}>
+                              {s.scores.growth.toFixed(0)}
+                            </td>
+                            <td className="mono" style={{ textAlign: "right", color: s.scores.lowVolatility >= 70 ? "var(--neon-green)" : s.scores.lowVolatility <= 30 ? "var(--neon-rose)" : "#fff" }}>
+                              {s.scores.lowVolatility.toFixed(0)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -943,14 +1266,23 @@ export default function FundAITerminal({ user, onLogout }) {
                         <span className={`badge-action ${rec.action.toLowerCase()}`}>{rec.action}</span>
                         <strong className="mono" style={{ fontSize: 14 }}>{rec.symbol}</strong>
                       </div>
-                      <span className={`mono ${rec.weightDrift >= 0 ? "val-gain" : "val-loss"}`}>
-                        {rec.weightDrift >= 0 ? "+" : ""}{rec.weightDrift.toFixed(1)}% Drift
+                      <span className={`mono ${rec.action === "BUY" ? "val-gain" : "val-loss"}`} style={{ fontSize: "12px", fontWeight: "600" }}>
+                        {rec.action === "BUY" 
+                          ? `Under-allocated: +${Math.abs(rec.weightDrift).toFixed(1)}%` 
+                          : `Over-allocated: -${Math.abs(rec.weightDrift).toFixed(1)}%`}
                       </span>
                     </div>
                     <p className="rec-desc">{rec.rationale}</p>
                     <div className="ticket-controls">
                       <button className="action-button approve" onClick={() => handleDecide(rec.id, "APPROVED")}>
                         <Check size={14} /> Approve Order
+                      </button>
+                      <button 
+                        className="action-button" 
+                        style={{ borderColor: "rgba(37, 211, 102, 0.3)", color: "#25D366" }}
+                        onClick={() => handleCopyWhatsApp(rec)}
+                      >
+                        Copy for WhatsApp
                       </button>
                       <button className="action-button reject" onClick={() => handleDecide(rec.id, "REJECTED")}>
                         <X size={14} /> Skip Drift
@@ -967,6 +1299,94 @@ export default function FundAITerminal({ user, onLogout }) {
         {/* Right Sidebar Widgets */}
         <div className="right-sidebar">
           
+          {/* Stock Analytics Profile (Conditional) */}
+          {selectedStock && (
+            <div className="glass-panel" style={{ borderColor: "var(--neon-cyan)", transition: "all 0.3s ease", marginBottom: "10px" }}>
+              <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 className="panel-title" style={{ color: "var(--neon-cyan)", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Cpu size={14} /> Stock Factor Analytics
+                </h3>
+                <button 
+                  className="mode-btn" 
+                  style={{ fontSize: "10px", padding: "2px 8px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
+                  onClick={() => setSelectedStock(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div style={{ marginTop: "12px", borderBottom: "1px solid rgba(255, 255, 255, 0.05)", paddingBottom: "12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span className="mono" style={{ fontSize: "20px", fontWeight: "bold", color: "#fff" }}>{selectedStock.symbol}</span>
+                  <span className="mono" style={{ fontSize: "16px", fontWeight: "bold", color: "var(--neon-cyan)" }}>
+                    {selectedStock.scores.composite.toFixed(1)} Composite
+                  </span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#8c9bb0", marginTop: "4px" }}>{selectedStock.name}</div>
+                <div style={{ marginTop: "8px" }}>
+                  <span className="sector-badge" style={{ background: "rgba(0,240,255,0.08)", color: "var(--neon-cyan)", border: "1px solid rgba(0,240,255,0.2)" }}>{selectedStock.sector}</span>
+                </div>
+              </div>
+
+              {/* Factor Scores Grid */}
+              <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <span className="mono" style={{ fontSize: "10px", color: "#8c9bb0" }}>FACTOR METRIC PROFILE:</span>
+                
+                {Object.entries({
+                  Value: selectedStock.scores.value,
+                  Momentum: selectedStock.scores.momentum,
+                  Quality: selectedStock.scores.quality,
+                  Growth: selectedStock.scores.growth,
+                  "Low Volatility": selectedStock.scores.lowVolatility
+                }).map(([label, val]) => (
+                  <div key={label}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginBottom: "4px" }}>
+                      <span style={{ color: "#8c9bb0" }}>{label}</span>
+                      <span className="mono" style={{ color: val >= 70 ? "var(--neon-green)" : val <= 30 ? "var(--neon-rose)" : "#fff" }}>{val.toFixed(0)}</span>
+                    </div>
+                    <div className="factor-bar-bg" style={{ height: "4px" }}>
+                      <div 
+                        className="factor-bar-fill" 
+                        style={{ 
+                          width: `${val}%`, 
+                          height: "100%", 
+                          background: val >= 70 ? "var(--neon-green)" : val <= 30 ? "var(--neon-rose)" : "var(--neon-cyan)" 
+                        }} 
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Fundamental Metrics Grid */}
+              {selectedStock.fundamentals && (
+                <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(255, 255, 255, 0.05)" }}>
+                  <span className="mono" style={{ fontSize: "10px", color: "#8c9bb0", display: "block", marginBottom: "8px" }}>
+                    QUARTERLY FUNDAMENTALS:
+                  </span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                    <div style={{ background: "rgba(255,255,255,0.02)", padding: "6px 8px", borderRadius: "4px" }}>
+                      <span style={{ fontSize: "10px", color: "#8c9bb0", display: "block" }}>P/E Ratio</span>
+                      <span className="mono" style={{ fontSize: "12px", color: "#fff" }}>{selectedStock.fundamentals.peRatio?.toFixed(1) || "N/A"}</span>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.02)", padding: "6px 8px", borderRadius: "4px" }}>
+                      <span style={{ fontSize: "10px", color: "#8c9bb0", display: "block" }}>P/B Ratio</span>
+                      <span className="mono" style={{ fontSize: "12px", color: "#fff" }}>{selectedStock.fundamentals.pbRatio?.toFixed(1) || "N/A"}</span>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.02)", padding: "6px 8px", borderRadius: "4px" }}>
+                      <span style={{ fontSize: "10px", color: "#8c9bb0", display: "block" }}>ROE</span>
+                      <span className="mono" style={{ fontSize: "12px", color: "#fff" }}>{selectedStock.fundamentals.roe ? `${selectedStock.fundamentals.roe.toFixed(1)}%` : "N/A"}</span>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.02)", padding: "6px 8px", borderRadius: "4px" }}>
+                      <span style={{ fontSize: "10px", color: "#8c9bb0", display: "block" }}>D/E Ratio</span>
+                      <span className="mono" style={{ fontSize: "12px", color: "#fff" }}>{selectedStock.fundamentals.debtToEquity?.toFixed(2) || "N/A"}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Factor Profile */}
           <div className="glass-panel">
             <div className="panel-header">
@@ -1003,7 +1423,7 @@ export default function FundAITerminal({ user, onLogout }) {
               <div className="glass-panel" style={{ transition: "all 0.3s ease" }}>
                 <div className="panel-header">
                   <h3 className="panel-title">
-                    <Sparkles size={14} style={{ color: regimeStyles.textColor }} /> Adaptive Intelligence
+                    <Sparkles size={14} style={{ color: regimeStyles.textColor }} /> Market Regime Sentinel
                   </h3>
                 </div>
                 <div 
@@ -1050,7 +1470,7 @@ export default function FundAITerminal({ user, onLogout }) {
                       
                       <div>
                         <div style={{ display: "flex", justifyItems: "center", justifyContent: "space-between", fontSize: "11px", color: "#8c9bb0", marginBottom: "4px" }}>
-                          <span>Participation Index (Volume)</span>
+                          <span>Market Volume Participation</span>
                           <span className="mono">{(marketRegime.metadata.volume_ratio || 1.0).toFixed(2)}x</span>
                         </div>
                         <div className="factor-bar-bg" style={{ height: "4px" }}>

@@ -64,6 +64,7 @@ interface ScoredStock {
   momentum_score: number;
   quality_score: number;
   growth_score: number;
+  low_volatility_score: number;
   composite_score: number;
   rationale: string;
 }
@@ -141,13 +142,26 @@ export async function runScoringAndRecommendations(): Promise<{
   const indexPrices = await fetchNiftyIndexPrices();
 
   console.log(`[scoring] Scoring ${universe.length} stocks with regime detection...`);
-  const scored = await callQuantEngine<ScoredStock[]>("/score", {
+  const scoreResponse = await callQuantEngine<{
+    scored_stocks: ScoredStock[];
+    run_metadata: {
+      scoring_date: string;
+      regime: string;
+      macro_context: string;
+      macro_context_date: string;
+    };
+  }>("/score", {
     universe,
     sector_neutral: true,
     price_history: priceHistory,
     index_prices: indexPrices,
     use_regime_weights: true,
   });
+
+  // macro_context is batch-level — same for all stocks on this scoring date.
+  // Read once here; inject into every recommendation's factorSnapshot below.
+  const scored = scoreResponse.scored_stocks;
+  const runMetadata = scoreResponse.run_metadata;
 
   const today = new Date();
   await prisma.$transaction(
@@ -161,6 +175,7 @@ export async function runScoringAndRecommendations(): Promise<{
           momentumScore: s.momentum_score,
           qualityScore: s.quality_score,
           growthScore: s.growth_score,
+          lowVolatilityScore: s.low_volatility_score,
           compositeScore: s.composite_score,
         },
         update: {
@@ -168,6 +183,7 @@ export async function runScoringAndRecommendations(): Promise<{
           momentumScore: s.momentum_score,
           qualityScore: s.quality_score,
           growthScore: s.growth_score,
+          lowVolatilityScore: s.low_volatility_score,
           compositeScore: s.composite_score,
         },
       })
@@ -256,10 +272,14 @@ export async function runScoringAndRecommendations(): Promise<{
                   quality: scoredStock.quality_score,
                   growth: scoredStock.growth_score,
                   composite: scoredStock.composite_score,
+                  // macro_context frozen at generation time — matches batch-level run_metadata.
+                  // Old recommendations retain the macro context known when they were created.
+                  macro_context: runMetadata?.macro_context ?? null,
+                  macro_context_date: runMetadata?.macro_context_date ?? null,
                 })
               : undefined,
             status: "PENDING",
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // recommendations expire after 7 days if not actioned
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           },
         });
         recommendationsCreated++;
@@ -382,10 +402,14 @@ async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: numbe
       console.error("[scoring] Failed loading stale cache fallback:", fallbackErr);
     }
 
-    console.log("[scoring] Falling back to synthetic data");
+    if (USE_REAL_DATA) {
+      throw new Error("Aborting daily pipeline: Real Nifty 50 data could not be fetched and no valid cache is available. Scoring aborted to prevent synthetic recommendations.");
+    }
+
+    console.log("[scoring] Falling back to synthetic data (DEVELOPMENT ONLY)");
     const synthetic = generateSyntheticIndexPrices();
     
-    // Cache the fallback synthetic prices so we don't block subsequent requests
+    // Cache the fallback synthetic prices so we don't block subsequent requests in dev
     try {
       const cacheDir = path.dirname(NIFTY_CACHE_FILE);
       if (!fs.existsSync(cacheDir)) {

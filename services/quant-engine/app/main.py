@@ -17,7 +17,9 @@ load_dotenv()
 
 from app.scoring.factor_scoring import compute_factor_scores, generate_rationale, FactorWeights
 from app.portfolio.construction import construct_model_portfolio, ConstructionConstraints, diff_against_current_holdings
-from app.scoring.regime_detection import detect_market_regime, MarketRegime
+from app.scoring.regime_detection import detect_market_regime, MarketRegime, get_geopolitical_macro_context
+from app.data.providers import get_provider
+from app.data.macro_events import MacroEventStore
 
 app = FastAPI(title="FundAI Quant Engine", version="0.2.0")
 
@@ -81,6 +83,35 @@ class RegimeDetectionRequest(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "0.2.0"}
+
+
+@app.get("/data-health")
+def data_health():
+    """
+    Connectivity probe for the market data provider.
+    Returns a structured dict: {ok, latency_ms, error}.
+    Safe to call frequently — fetches a single ^NSEI quote.
+    """
+    provider = get_provider()
+    return provider.health_check()
+
+
+@app.post("/refresh-macro-events")
+def refresh_macro_events(x_internal_token: str = Header(default="")):
+    """
+    Seed the macro event store (idempotent) and run a staleness check.
+    Called weekly by the BullMQ refreshMacroEvents job.
+    Returns any staleness warnings so the job can write them to SystemEvent.
+    """
+    verify_internal_token(x_internal_token)
+    store = MacroEventStore()
+    seeded = store.seed_from_hardcoded()
+    warnings = store.check_staleness(threshold_days=90)
+    return {
+        "seeded_events": seeded,
+        "staleness_warnings": warnings,
+        "warning_count": len(warnings),
+    }
 
 
 @app.post("/detect-regime")
@@ -152,10 +183,30 @@ def score_universe(req: ScoreRequest, x_internal_token: str = Header(default="")
         regime=None,  # Auto-detect from index_prices
         use_regime_weights=req.use_regime_weights,
     )
-    
+
     scored["rationale"] = scored.apply(generate_rationale, axis=1)
-    
-    return scored.to_dict(orient="records")
+
+    # --- Build batch-level run_metadata ---
+    # macro_context is date-based, not stock-based. Computed once here,
+    # broadcast to all recommendations from this run via factorSnapshot.
+    scoring_date = str(index_prices_series.index[-1].date()) if index_prices_series is not None else ""
+    regime_used = scored["regime_used"].iloc[0] if "regime_used" in scored.columns else "UNKNOWN"
+    macro_context = get_geopolitical_macro_context(
+        index_prices_series.index[-1] if index_prices_series is not None else None
+    )
+
+    from datetime import datetime, timezone
+    run_metadata = {
+        "scoring_date": scoring_date,
+        "regime": regime_used,
+        "macro_context": macro_context,
+        "macro_context_date": datetime.now(timezone.utc).isoformat(),
+    }
+
+    return {
+        "scored_stocks": scored.to_dict(orient="records"),
+        "run_metadata": run_metadata,
+    }
 
 
 @app.post("/construct-portfolio")

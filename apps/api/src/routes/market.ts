@@ -206,9 +206,10 @@ async function fetchRealNiftyPrices(): Promise<{ dates: string[]; closes: number
       console.error("[market/regime] Failed loading stale cache fallback:", fallbackErr);
     }
 
+    const isProduction = process.env.NODE_ENV === "production";
     const USE_REAL_DATA = process.env.USE_REAL_NIFTY_DATA !== "false";
-    if (USE_REAL_DATA) {
-      throw new Error("Aborting market regime detection: Real Nifty 50 data could not be fetched and no valid cache is available.");
+    if (isProduction || USE_REAL_DATA) {
+      throw new Error(`Aborting market regime detection: Real Nifty 50 data could not be fetched and no valid cache is available.${isProduction ? " Synthetic fallback is disabled in production." : ""}`);
     }
 
     console.log("[market/regime] Falling back to synthetic Nifty data (DEVELOPMENT ONLY)");

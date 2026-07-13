@@ -402,8 +402,9 @@ async function fetchNiftyIndexPrices(): Promise<{ dates: string[]; closes: numbe
       console.error("[scoring] Failed loading stale cache fallback:", fallbackErr);
     }
 
-    if (USE_REAL_DATA) {
-      throw new Error("Aborting daily pipeline: Real Nifty 50 data could not be fetched and no valid cache is available. Scoring aborted to prevent synthetic recommendations.");
+    const isProduction = process.env.NODE_ENV === "production";
+    if (isProduction || USE_REAL_DATA) {
+      throw new Error(`Aborting daily pipeline: Real Nifty 50 data could not be fetched and no valid cache is available. Scoring aborted to prevent synthetic recommendations.${isProduction ? " Synthetic fallback is disabled in production." : ""}`);
     }
 
     console.log("[scoring] Falling back to synthetic data (DEVELOPMENT ONLY)");

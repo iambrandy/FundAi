@@ -203,8 +203,10 @@ def score_universe(req: ScoreRequest, x_internal_token: str = Header(default="")
         "macro_context_date": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Convert DataFrame to records, then recursively clean NaN/inf values to None
+    records = scored.to_dict(orient="records")
     return {
-        "scored_stocks": scored.to_dict(orient="records"),
+        "scored_stocks": sanitize_nans(records),
         "run_metadata": run_metadata,
     }
 
@@ -224,4 +226,57 @@ def construct_portfolio(req: ConstructRequest, x_internal_token: str = Header(de
         result = construct_model_portfolio(df, constraints)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return result.to_dict(orient="records")
+    records = result.to_dict(orient="records")
+    return sanitize_nans(records)
+
+
+def sanitize_nans(obj):
+    import math
+    if isinstance(obj, list):
+        return [sanitize_nans(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: sanitize_nans(v) for k, v in obj.items()}
+    elif isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
+
+
+class DailyBarsRequest(BaseModel):
+    symbol: str
+    start_date: str
+    end_date: str
+
+
+class FundamentalsRequest(BaseModel):
+    symbol: str
+
+
+@app.post("/get-daily-bars")
+def get_daily_bars_endpoint(req: DailyBarsRequest, x_internal_token: str = Header(default="")):
+    verify_internal_token(x_internal_token)
+    provider = get_provider()
+    try:
+        df = provider.get_daily_bars(req.symbol, req.start_date, req.end_date)
+        # Convert date column to string format for JSON serialization
+        df_json = df.copy()
+        df_json['date'] = df_json['date'].astype(str)
+        records = df_json.to_dict(orient="records")
+        return sanitize_nans(records)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/get-fundamentals")
+def get_fundamentals_endpoint(req: FundamentalsRequest, x_internal_token: str = Header(default="")):
+    verify_internal_token(x_internal_token)
+    provider = get_provider()
+    try:
+        data = provider.get_fundamentals(req.symbol)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Fundamentals not found for {req.symbol}")
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

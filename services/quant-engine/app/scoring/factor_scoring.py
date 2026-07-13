@@ -96,7 +96,7 @@ def cross_sectional_zscore(series: pd.Series, group: pd.Series | None = None) ->
 def zscore_to_0_100(z: pd.Series) -> pd.Series:
     """Map z-scores to an intuitive 0-100 scale via the normal CDF.
     z=0 -> 50, z=+2 -> ~97.7, z=-2 -> ~2.3."""
-    return (norm.cdf(z) * 100).round(2)
+    return pd.Series((norm.cdf(z) * 100).round(2), index=z.index)
 
 
 # ----------------------------------------------------------------------------
@@ -163,10 +163,10 @@ def compute_factor_scores(
         + weights.growth["revenue_growth_yoy"] * cross_sectional_zscore(df["revenue_growth_yoy"], group)
     )
 
-    df["value_score"] = zscore_to_0_100(value_z)
-    df["momentum_score"] = zscore_to_0_100(momentum_z)
-    df["quality_score"] = zscore_to_0_100(quality_z)
-    df["growth_score"] = zscore_to_0_100(growth_z)
+    df["value_score"] = zscore_to_0_100(value_z).fillna(50.0)
+    df["momentum_score"] = zscore_to_0_100(momentum_z).fillna(50.0)
+    df["quality_score"] = zscore_to_0_100(quality_z).fillna(50.0)
+    df["growth_score"] = zscore_to_0_100(growth_z).fillna(50.0)
 
     # --- NEW: Low Volatility Factor ---
     if price_history is not None and len(price_history) > 0:
@@ -190,7 +190,7 @@ def compute_factor_scores(
         
         # Z-score and convert to 0-100
         low_vol_z = cross_sectional_zscore(df['low_vol_raw_score'], group)
-        df["low_volatility_score"] = zscore_to_0_100(low_vol_z)
+        df["low_volatility_score"] = zscore_to_0_100(low_vol_z).fillna(50.0)
     else:
         # If no price history, set low vol score to neutral 50
         df["low_volatility_score"] = 50.0

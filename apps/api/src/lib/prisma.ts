@@ -62,10 +62,10 @@ export function getTenantPrisma(userId: string, role: "ADVISOR" | "RETAIL" | "AD
               }
             }
           } else {
-            args.where =
-              role === "ADVISOR"
-                ? { ...args.where, advisorId: userId }
-                : { ...args.where, retailUserId: userId };
+            args.where = {
+              ...args.where,
+              ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId })
+            };
           }
           return query(args);
         },
@@ -76,18 +76,96 @@ export function getTenantPrisma(userId: string, role: "ADVISOR" | "RETAIL" | "AD
           if (operation !== "create" && operation !== "createMany") {
             args.where = {
               ...args.where,
-              client:
-                role === "ADVISOR"
-                  ? { advisorId: userId }
-                  : { retailUserId: userId },
+              client: {
+                ...args.where?.client,
+                ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId }),
+              },
             };
           }
           return query(args);
         },
       },
-      // Holding, Transaction, Recommendation are reached via portfolio -> so
-      // route handlers must always filter through a portfolio the caller
-      // owns (verified explicitly — see routes/portfolios.ts for the pattern).
+      holding: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              portfolio: {
+                ...args.where?.portfolio,
+                client: {
+                  ...args.where?.portfolio?.client,
+                  ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId }),
+                },
+              },
+            };
+          }
+          return query(args);
+        },
+      },
+      recommendation: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              portfolio: {
+                ...args.where?.portfolio,
+                client: {
+                  ...args.where?.portfolio?.client,
+                  ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId }),
+                },
+              },
+            };
+          }
+          return query(args);
+        },
+      },
+      transaction: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              portfolio: {
+                ...args.where?.portfolio,
+                client: {
+                  ...args.where?.portfolio?.client,
+                  ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId }),
+                },
+              },
+            };
+          }
+          return query(args);
+        },
+      },
+      auditLog: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              userId: userId,
+            };
+          }
+          return query(args);
+        },
+      },
+      riskProfile: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async $allOperations({ operation, args, query }: { operation: string; args: any; query: (args: any) => Promise<any> }) {
+          if (operation !== "create" && operation !== "createMany") {
+            args.where = {
+              ...args.where,
+              client: {
+                ...args.where?.client,
+                ...(role === "ADVISOR" ? { advisorId: userId } : { retailUserId: userId }),
+              },
+            };
+          }
+          return query(args);
+        },
+      },
     },
   });
 }
